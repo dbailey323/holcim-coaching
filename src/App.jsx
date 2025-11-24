@@ -225,7 +225,7 @@ const AdminUserCreator = ({ onClose }) => {
           <form onSubmit={handleCreateUser} className="space-y-5">
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-2">New User Email</label>
-              <input type="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="analyst@holcim.com" />
+              <input type="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="analyst@holcim.co.uk" />
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Temporary Password</label>
