@@ -30,7 +30,7 @@ const getEnvVar = (key) => {
 // 1. Tries to load from Vercel Environment Variables first (Secure)
 // 2. Falls back to hardcoded key for this preview to work (Optional)
 const firebaseConfig = {
-  apiKey: getEnvVar('VITE_FIREBASE_API_KEY') || "AIzaSyBKaWwLtoLvKpDjl1ZNuehVpw4KXtfFQHs",
+  apiKey: getEnvVar('VITE_FIREBASE_API_KEY'),
   authDomain: "holcim-coaching.firebaseapp.com",
   projectId: "holcim-coaching",
   storageBucket: "holcim-coaching.firebasestorage.app",
