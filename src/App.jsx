@@ -7,9 +7,30 @@ import {
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from 'firebase/auth';
 
-// --- FIREBASE CONFIGURATION (Your Specific Project) ---
+// --- ENVIRONMENT VARIABLE HELPER ---
+// Safely retrieves env vars in various environments (Vite, Next.js, Standard Webpack)
+// without crashing if 'process' or 'import.meta' is undefined.
+const getEnvVar = (key) => {
+  try {
+    // Vite / Vercel standard
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+      return import.meta.env[key];
+    }
+    // Create-React-App / Standard Node standard
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key];
+    }
+  } catch (e) {
+    // Ignore errors in strict environments
+  }
+  return undefined;
+};
+
+// --- FIREBASE CONFIGURATION ---
+// 1. Tries to load from Vercel Environment Variables first (Secure)
+// 2. Falls back to hardcoded key for this preview to work (Optional)
 const firebaseConfig = {
-  apiKey: "AIzaSyBKaWwLtoLvKpDjl1ZNuehVpw4KXtfFQHs",
+  apiKey: getEnvVar('VITE_FIREBASE_API_KEY') || "AIzaSyBKaWwLtoLvKpDjl1ZNuehVpw4KXtfFQHs",
   authDomain: "holcim-coaching.firebaseapp.com",
   projectId: "holcim-coaching",
   storageBucket: "holcim-coaching.firebasestorage.app",
@@ -70,8 +91,27 @@ const BRAND = {
   grey: '#F3F4F6'
 };
 
-// --- Components ---
+// --- IMAGE LOGO COMPONENT ---
+const HolcimLogo = ({ className = "h-12" }) => (
+  <img 
+    src="/logo.png" 
+    alt="Holcim Logo" 
+    className={`${className} w-auto object-contain`}
+    onError={(e) => {
+      e.target.style.display = 'none'; // Hide broken image icon
+      // Fallback to text if image fails to load (e.g. in preview)
+      const span = document.createElement('span');
+      span.innerText = "HOLCIM";
+      span.style.fontWeight = "900";
+      span.style.fontSize = "24px";
+      span.style.color = BRAND.navy;
+      span.style.fontFamily = "sans-serif";
+      e.target.parentNode.appendChild(span);
+    }}
+  />
+);
 
+// --- Custom Radar Chart Component ---
 const RadarChart = ({ scores, naFlags }) => {
   const size = 300;
   const center = size / 2;
@@ -153,8 +193,7 @@ const LoginScreen = () => {
       <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden border border-slate-200">
         <div className="p-8 pb-6 text-center border-b border-slate-100">
            <div className="flex justify-center items-center gap-3 mb-4">
-              <h1 className="text-4xl font-black tracking-tight" style={{ color: BRAND.navy }}>HOLCIM</h1>
-              <div className="h-8 w-1 rounded-full" style={{ backgroundColor: BRAND.green }}></div>
+              <HolcimLogo className="h-16" />
            </div>
            <p className="text-slate-500 font-medium">Service Desk Coaching Portal</p>
         </div>
@@ -170,7 +209,7 @@ const LoginScreen = () => {
   );
 };
 
-// --- Admin User Creation Component ---
+// --- Admin User Creator ---
 const AdminUserCreator = ({ onClose }) => {
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -181,21 +220,17 @@ const AdminUserCreator = ({ onClose }) => {
     e.preventDefault();
     setLoading(true);
     setMsg({ text: '', type: '' });
-
-    // Initialize a secondary app to prevent logging out the current admin
     const secondaryApp = initializeApp(firebaseConfig, "Secondary");
     const secondaryAuth = getAuth(secondaryApp);
-
     try {
       await createUserWithEmailAndPassword(secondaryAuth, newEmail, newPassword);
-      await signOut(secondaryAuth); // Sign out the new user immediately
+      await signOut(secondaryAuth);
       setMsg({ text: `Successfully created user: ${newEmail}`, type: 'success' });
-      setNewEmail('');
-      setNewPassword('');
+      setNewEmail(''); setNewPassword('');
     } catch (error) {
       setMsg({ text: error.message, type: 'error' });
     } finally {
-      deleteApp(secondaryApp); // Cleanup secondary app
+      deleteApp(secondaryApp);
       setLoading(false);
     }
   };
@@ -206,36 +241,16 @@ const AdminUserCreator = ({ onClose }) => {
         <div className="p-6 border-b border-slate-100 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><UserPlus size={24} /></div>
-            <div>
-              <h3 className="font-bold text-xl text-slate-800">Create New User</h3>
-              <p className="text-xs text-slate-500">Add access for a new analyst or manager</p>
-            </div>
+            <div><h3 className="font-bold text-xl text-slate-800">Create New User</h3><p className="text-xs text-slate-500">Add access for a new analyst or manager</p></div>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
         </div>
-        
         <div className="p-8 bg-slate-50">
-          {msg.text && (
-            <div className={`mb-6 p-4 rounded-lg text-sm flex items-center gap-2 ${msg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-              {msg.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-              {msg.text}
-            </div>
-          )}
-
+          {msg.text && <div className={`mb-6 p-4 rounded-lg text-sm flex items-center gap-2 ${msg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>{msg.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}{msg.text}</div>}
           <form onSubmit={handleCreateUser} className="space-y-5">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">New User Email</label>
-              <input type="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="analyst@holcim.co.uk" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Temporary Password</label>
-              <input type="text" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Min 6 chars" />
-            </div>
-            <div className="pt-2">
-              <button type="submit" disabled={loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow transition-all flex justify-center items-center gap-2">
-                {loading ? 'Creating Account...' : 'Create Account'}
-              </button>
-            </div>
+            <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">New User Email</label><input type="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="analyst@holcim.com" /></div>
+            <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">Temporary Password</label><input type="text" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Min 6 chars" /></div>
+            <div className="pt-2"><button type="submit" disabled={loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow transition-all flex justify-center items-center gap-2">{loading ? 'Creating Account...' : 'Create Account'}</button></div>
           </form>
         </div>
       </div>
@@ -253,7 +268,10 @@ export default function CallCoachingApp() {
   const [file, setFile] = useState(null);
   const [audioUrl, setAudioUrl] = useState(null);
   const audioRef = useRef(null);
-  const [apiKey, setApiKey] = useState('AIzaSyCRwBDPesrXArv8MFf5lPGZcMIY6sKZJR8');
+  
+  // --- LOAD SECURE KEYS ---
+  const [apiKey, setApiKey] = useState(getEnvVar('VITE_GEMINI_API_KEY') || '');
+  
   const [showSettings, setShowSettings] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
@@ -295,7 +313,8 @@ export default function CallCoachingApp() {
   };
 
   const analyzeWithGemini = async (audioFile) => {
-    if (!apiKey) { setError("Please enter a Gemini API Key."); setView('upload'); return; }
+    // Check if API key is loaded from env vars or manually set
+    if (!apiKey) { setError("Gemini API Key missing. Check Vercel Environment Variables (VITE_GEMINI_API_KEY) or enter in settings."); setView('upload'); return; }
     setIsProcessing(true); setError('');
     try {
       const base64Audio = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.readAsDataURL(audioFile); reader.onload = () => resolve(reader.result.split(',')[1]); reader.onerror = error => reject(error); });
@@ -348,10 +367,8 @@ export default function CallCoachingApp() {
       <div className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm no-print">
         <div className="max-w-5xl mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-             <div className="flex items-center gap-3">
-               <h1 className="text-3xl font-black tracking-tight" style={{ color: BRAND.navy }}>HOLCIM</h1>
-               <div className="hidden md:block h-8 w-1 rounded-full" style={{ backgroundColor: BRAND.green }}></div>
-             </div>
+             <HolcimLogo className="h-10 md:h-12" />
+             <div className="hidden md:block h-6 w-px bg-slate-300 mx-2"></div>
              <span className="hidden md:block text-slate-500 font-medium">Service Desk Coaching</span>
           </div>
           <div className="flex items-center gap-3">
