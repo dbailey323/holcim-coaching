@@ -324,9 +324,8 @@ export default function CallCoachingApp() {
       });
 
       // Prepare OpenRouter Payload (OpenAI Compatible)
-      // Updated to use the newer, more stable Gemini 2.0 Flash
       const payload = {
-        model: "google/gemini-2.0-flash-001",
+        model: "google/gemini-flash-1.5",
         messages: [
           {
             role: "system",
@@ -477,7 +476,7 @@ export default function CallCoachingApp() {
           <div className="flex flex-col items-center justify-center py-32 text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-b-4 mb-6" style={{ borderColor: BRAND.green }}></div>
             <h2 className="text-2xl font-bold" style={{ color: BRAND.navy }}>Auditing Call Quality...</h2>
-            <p className="text-slate-500 mt-2">Connecting to OpenRouter (Gemini 2.0 Flash)...</p>
+            <p className="text-slate-500 mt-2">Connecting to OpenRouter (Gemini 1.5 Flash)...</p>
           </div>
         )}
 
