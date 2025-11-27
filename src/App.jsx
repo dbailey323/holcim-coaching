@@ -326,7 +326,7 @@ export default function CallCoachingApp() {
       // Prepare OpenRouter Payload (OpenAI Compatible)
       // Using google/gemini-flash-1.5 via OpenRouter which supports audio via data URL
       const payload = {
-        model: "gemini-2.5-flash-preview-09-2025",
+        model: "google/gemini-2.5-flash",
         messages: [
           {
             role: "system",
