@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Upload, FileAudio, CheckCircle, AlertCircle, Save, Download, RefreshCw, 
   Settings, Printer, Lock, Key, BarChart3, User, Play, Pause, Volume2, 
-  FileSpreadsheet, PenTool, ShieldCheck, LogOut, ChevronRight, Users, UserPlus, X, Network 
+  FileSpreadsheet, PenTool, ShieldCheck, LogOut, ChevronRight, Users, UserPlus, X, Network, Zap 
 } from 'lucide-react';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from 'firebase/auth';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // --- ENVIRONMENT VARIABLE HELPER ---
 const getEnvVar = (key) => {
@@ -259,10 +260,11 @@ export default function CallCoachingApp() {
   const [file, setFile] = useState(null);
   const [audioUrl, setAudioUrl] = useState(null);
   const audioRef = useRef(null);
-  
-  // --- LOAD SECURE KEYS (OpenRouter) ---
-  const [apiKey, setApiKey] = useState(getEnvVar('VITE_OPENROUTER_API_KEY') || '');
-  
+   
+  // --- GOOGLE GEMINI API KEYS ---
+  // Using official Gemini API key instead of OpenRouter
+  const [apiKey, setApiKey] = useState(getEnvVar('VITE_GEMINI_API_KEY') || '');
+   
   const [showSettings, setShowSettings] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
@@ -303,10 +305,10 @@ export default function CallCoachingApp() {
     return { percentage: percentage.toFixed(1) };
   };
 
-  // --- OPENROUTER ANALYSIS ---
-  const analyzeWithOpenRouter = async (audioFile) => {
+  // --- GOOGLE GEMINI DIRECT API ANALYSIS ---
+  const analyzeWithGeminiAPI = async (audioFile) => {
     if (!apiKey) { 
-      setError("OpenRouter API Key missing. Check Vercel Environment Variables (VITE_OPENROUTER_API_KEY) or enter in settings."); 
+      setError("Gemini API Key missing. Check Vercel Environment Variables (VITE_GEMINI_API_KEY) or enter in settings."); 
       setView('upload'); 
       return; 
     }
@@ -315,78 +317,63 @@ export default function CallCoachingApp() {
     setError('');
     
     try {
-      // Convert Audio to Base64
-      const base64Audio = await new Promise((resolve, reject) => { 
+      // 1. Initialize Google Generative AI
+      const genAI = new GoogleGenerativeAI(apiKey);
+      
+      // 2. Select Model
+      // Note: We use gemini-1.5-flash because 1.0-pro does not support native audio input.
+      // This is the most cost-effective "pay-as-you-go" capable model.
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: { responseMimeType: "application/json" }
+      });
+
+      // 3. Convert Audio to Base64 (stripping the data URL prefix for Gemini API)
+      const base64AudioData = await new Promise((resolve, reject) => { 
         const reader = new FileReader(); 
         reader.readAsDataURL(audioFile); 
-        reader.onload = () => resolve(reader.result); 
+        reader.onload = () => {
+            const result = reader.result;
+            // Remove "data:audio/wav;base64," prefix
+            const base64Data = result.split(',')[1];
+            resolve(base64Data);
+        }; 
         reader.onerror = error => reject(error); 
       });
 
-      // Prepare OpenRouter Payload (OpenAI Compatible)
-      const payload = {
-        model: "google/gemini-flash-1.5-8b",
-        messages: [
-          {
-            role: "system",
-            content: SYSTEM_PROMPT
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Please audit this call recording based on the policy."
-              },
-              {
-                type: "image_url", // OpenRouter/Gemini supports audio via this field for now
-                image_url: {
-                  url: base64Audio
-                }
-              }
-            ]
+      // 4. Send Request
+      const prompt = `
+        ${SYSTEM_PROMPT}
+        
+        Please audit this call recording provided in the audio attachment based on the strict policy above.
+      `;
+
+      const result = await model.generateContent([
+        prompt,
+        {
+          inlineData: {
+            mimeType: audioFile.type || "audio/mp3", // Default if type is missing
+            data: base64AudioData
           }
-        ],
-        response_format: { type: "json_object" } 
-      };
-
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "HTTP-Referer": window.location.href, // Required by OpenRouter
-          "X-Title": "Holcim Coaching App",     // Optional title
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await response.json();
-      
-      // Handle OpenRouter specific error format
-      if (data.error) {
-        if (data.error.code === 402 || data.error.message?.includes('credits')) {
-           throw new Error("OpenRouter: Insufficient credits. Please check your account balance.");
         }
-        throw new Error(data.error.message || "OpenRouter API Error");
-      }
-      if (!data.choices || !data.choices[0]) throw new Error("No response from AI model");
+      ]);
 
-      // Parse Response
-      const resultText = data.choices[0].message.content;
-      const result = JSON.parse(resultText);
+      const response = await result.response;
+      const jsonText = response.text();
+      const data = JSON.parse(jsonText);
 
-      setScores(result.scores); 
-      setComments(result.comments); 
-      setNaFlags(prev => ({ ...prev, hold_proc: result.hold_na || false }));
-      setExecutiveSummary(result.executive_summary || "No summary generated."); 
-      setDetailedStrengths(result.detailed_strengths || []); 
-      setDetailedImprovements(result.detailed_improvements || []);
+      // 5. Map Data to State
+      setScores(data.scores); 
+      setComments(data.comments); 
+      setNaFlags(prev => ({ ...prev, hold_proc: data.hold_na || false }));
+      setExecutiveSummary(data.executive_summary || "No summary generated."); 
+      setDetailedStrengths(data.detailed_strengths || []); 
+      setDetailedImprovements(data.detailed_improvements || []);
       
       setView('report');
     } catch (err) { 
       console.error(err);
-      setError("AI Analysis Failed: " + err.message); 
+      setError("Gemini API Analysis Failed: " + (err.message || err.toString())); 
       setView('upload'); 
     } finally { 
       setIsProcessing(false); 
@@ -412,7 +399,7 @@ export default function CallCoachingApp() {
       setFile(uploadedFile); 
       setAudioUrl(URL.createObjectURL(uploadedFile)); 
       setView('analyzing'); 
-      if (apiKey) analyzeWithOpenRouter(uploadedFile); else handleMockAnalysis(); 
+      if (apiKey) analyzeWithGeminiAPI(uploadedFile); else handleMockAnalysis(); 
     }
   };
 
@@ -452,8 +439,8 @@ export default function CallCoachingApp() {
       {showSettings && (
         <div className="text-white p-6 shadow-inner" style={{ backgroundColor: BRAND.navy }}>
           <div className="max-w-5xl mx-auto flex items-center gap-4">
-            <div className="flex-1"><h3 className="font-bold flex items-center gap-2"><Network size={16} /> OpenRouter Configuration</h3></div>
-            <div className="flex gap-2"><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="px-4 py-2 rounded bg-white/10 text-white text-sm border border-white/20" placeholder="sk-or-..." /><button onClick={() => setShowSettings(false)} style={{ backgroundColor: BRAND.green }} className="px-4 py-2 rounded text-sm font-bold hover:opacity-90">Done</button></div>
+            <div className="flex-1"><h3 className="font-bold flex items-center gap-2"><Zap size={16} /> Google Gemini API Configuration</h3></div>
+            <div className="flex gap-2"><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="px-4 py-2 rounded bg-white/10 text-white text-sm border border-white/20" placeholder="AIzaSy..." /><button onClick={() => setShowSettings(false)} style={{ backgroundColor: BRAND.green }} className="px-4 py-2 rounded text-sm font-bold hover:opacity-90">Done</button></div>
           </div>
         </div>
       )}
@@ -465,7 +452,7 @@ export default function CallCoachingApp() {
             <div className="bg-white p-12 rounded-2xl shadow-xl border border-slate-200 text-center max-w-lg w-full">
               <div className="flex justify-center mb-8"><div className="p-4 rounded-full bg-slate-50">{apiKey ? <ShieldCheck size={48} style={{ color: BRAND.green }} /> : <Upload size={48} style={{ color: BRAND.navy }} />}</div></div>
               <h2 className="text-2xl font-bold mb-2" style={{ color: BRAND.navy }}>Call Quality Audit</h2>
-              <p className="text-slate-500 mb-8 text-sm">{apiKey ? 'Holcim UK Policy Strictness: HIGH (OpenRouter)' : 'Mock Mode Active'}</p>
+              <p className="text-slate-500 mb-8 text-sm">{apiKey ? 'Holcim UK Policy Strictness: HIGH (Gemini 1.5 Flash)' : 'Mock Mode Active'}</p>
               <div className="mb-6 text-left"><label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Analyst Name</label><div className="relative"><User className="absolute left-3 top-3 text-slate-400" size={18} /><input type="text" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Sarah Smith" className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 outline-none focus:ring-2" style={{ '--tw-ring-color': BRAND.green }} /></div></div>
               <label className="block w-full cursor-pointer group"><input type="file" accept=".wav,.mp3" className="hidden" onChange={handleUpload} /><div className="border-2 border-dashed border-slate-200 bg-slate-50 group-hover:bg-blue-50/50 group-hover:border-blue-200 transition-all rounded-xl p-8 flex flex-col items-center gap-3"><span className="font-semibold" style={{ color: BRAND.cyan }}>Click to upload recording</span></div></label>
             </div>
@@ -476,7 +463,7 @@ export default function CallCoachingApp() {
           <div className="flex flex-col items-center justify-center py-32 text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-b-4 mb-6" style={{ borderColor: BRAND.green }}></div>
             <h2 className="text-2xl font-bold" style={{ color: BRAND.navy }}>Auditing Call Quality...</h2>
-            <p className="text-slate-500 mt-2">Connecting to OpenRouter (Gemini 1.5 Flash)...</p>
+            <p className="text-slate-500 mt-2">Processing with Google Gemini 1.5 Flash (Direct API)...</p>
           </div>
         )}
 
