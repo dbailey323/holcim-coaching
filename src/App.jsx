@@ -325,7 +325,7 @@ export default function CallCoachingApp() {
 
       // Prepare OpenRouter Payload (OpenAI Compatible)
       const payload = {
-        model: "google/gemini-2.0-flash-exp:free",
+        model: "google/gemini-flash-1.5-8b",
         messages: [
           {
             role: "system",
