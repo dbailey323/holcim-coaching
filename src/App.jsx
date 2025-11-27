@@ -6,7 +6,6 @@ import {
 } from 'lucide-react';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from 'firebase/auth';
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // --- ENVIRONMENT VARIABLE HELPER ---
 const getEnvVar = (key) => {
@@ -262,7 +261,7 @@ export default function CallCoachingApp() {
   const audioRef = useRef(null);
    
   // --- GOOGLE GEMINI API KEYS ---
-  // Using official Gemini API key instead of OpenRouter
+  // Using direct REST API, so no SDK import is needed.
   const [apiKey, setApiKey] = useState(getEnvVar('VITE_GEMINI_API_KEY') || '');
    
   const [showSettings, setShowSettings] = useState(false);
@@ -305,7 +304,7 @@ export default function CallCoachingApp() {
     return { percentage: percentage.toFixed(1) };
   };
 
-  // --- GOOGLE GEMINI DIRECT API ANALYSIS ---
+  // --- GOOGLE GEMINI DIRECT API ANALYSIS (NO SDK) ---
   const analyzeWithGeminiAPI = async (audioFile) => {
     if (!apiKey) { 
       setError("Gemini API Key missing. Check Vercel Environment Variables (VITE_GEMINI_API_KEY) or enter in settings."); 
@@ -317,58 +316,68 @@ export default function CallCoachingApp() {
     setError('');
     
     try {
-      // 1. Initialize Google Generative AI
-      const genAI = new GoogleGenerativeAI(apiKey);
-      
-      // 2. Select Model
-      // Note: We use gemini-1.5-flash because 1.0-pro does not support native audio input.
-      // This is the most cost-effective "pay-as-you-go" capable model.
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-flash",
-        generationConfig: { responseMimeType: "application/json" }
-      });
-
-      // 3. Convert Audio to Base64 (stripping the data URL prefix for Gemini API)
+      // 1. Convert Audio to Base64 (stripping the data URL prefix)
       const base64AudioData = await new Promise((resolve, reject) => { 
         const reader = new FileReader(); 
         reader.readAsDataURL(audioFile); 
         reader.onload = () => {
             const result = reader.result;
-            // Remove "data:audio/wav;base64," prefix
+            // Remove "data:audio/wav;base64," prefix for API usage
             const base64Data = result.split(',')[1];
             resolve(base64Data);
         }; 
         reader.onerror = error => reject(error); 
       });
 
-      // 4. Send Request
-      const prompt = `
-        ${SYSTEM_PROMPT}
-        
-        Please audit this call recording provided in the audio attachment based on the strict policy above.
-      `;
-
-      const result = await model.generateContent([
-        prompt,
-        {
-          inlineData: {
-            mimeType: audioFile.type || "audio/mp3", // Default if type is missing
-            data: base64AudioData
-          }
+      // 2. Construct Payload for REST API
+      const payload = {
+        contents: [{
+          parts: [
+            { text: `${SYSTEM_PROMPT}\n\nPlease audit this call recording provided in the audio attachment based on the strict policy above.` },
+            {
+              inline_data: {
+                mime_type: audioFile.type || "audio/mp3",
+                data: base64AudioData
+              }
+            }
+          ]
+        }],
+        generationConfig: {
+          response_mime_type: "application/json"
         }
-      ]);
+      };
 
-      const response = await result.response;
-      const jsonText = response.text();
-      const data = JSON.parse(jsonText);
+      // 3. Send Request to Google REST Endpoint
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error?.message || `API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      // 4. Parse Response
+      // Gemini's structure: candidates[0].content.parts[0].text
+      if (!data.candidates || !data.candidates[0]?.content?.parts[0]?.text) {
+        throw new Error("Invalid response format from Gemini API");
+      }
+
+      const jsonResult = JSON.parse(data.candidates[0].content.parts[0].text);
 
       // 5. Map Data to State
-      setScores(data.scores); 
-      setComments(data.comments); 
-      setNaFlags(prev => ({ ...prev, hold_proc: data.hold_na || false }));
-      setExecutiveSummary(data.executive_summary || "No summary generated."); 
-      setDetailedStrengths(data.detailed_strengths || []); 
-      setDetailedImprovements(data.detailed_improvements || []);
+      setScores(jsonResult.scores); 
+      setComments(jsonResult.comments); 
+      setNaFlags(prev => ({ ...prev, hold_proc: jsonResult.hold_na || false }));
+      setExecutiveSummary(jsonResult.executive_summary || "No summary generated."); 
+      setDetailedStrengths(jsonResult.detailed_strengths || []); 
+      setDetailedImprovements(jsonResult.detailed_improvements || []);
       
       setView('report');
     } catch (err) { 
