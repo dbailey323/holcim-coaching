@@ -44,11 +44,16 @@ You are a strict and critical Quality Assurance Manager for Holcim UK Service De
 4. **DETAILED FEEDBACK**: Write a professional narrative explaining exactly *why* points were deducted, referencing the audio time.
 5. **OUTPUT JSON**: You must output ONLY valid JSON.
 
+### HOLD PROCEDURE SPECIFICS:
+- **Hold Music Detected**: If the agent puts the user on hold (music plays), score based on: Did they ask permission? Did they wait for an answer? Did they thank the user upon return?
+- **Dead Air/Silence**: If the agent is checking information for >20 seconds without using the official Hold function (music), this is a FAILURE. Do not mark N/A. Score low and state "Should have used hold procedure".
+- **No Hold Needed**: If the call was resolved fluidly without needing to check information or pause, set "hold_na": true in the JSON. This will remove it from the scoring calculation.
+
 ### STRICT SCORING MATRIX (0-5):
 1. **Greeting & Introduction (5%)**
 2. **Communication Style (10%)**
 3. **Issue Handling & Clarity (20%)**
-4. **Hold Procedure (10%)**
+4. **Hold Procedure (10%)** - See specific logic above.
 5. **Professionalism & Empathy (15%)**
 6. **Resolution & Next Steps (15%)**
 7. **Call Closure (5%)**
@@ -565,3 +570,5 @@ export default function CallCoachingApp() {
     </div>
   );
 }
+
+
