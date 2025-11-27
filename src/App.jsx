@@ -2,35 +2,27 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Upload, FileAudio, CheckCircle, AlertCircle, Save, Download, RefreshCw, 
   Settings, Printer, Lock, Key, BarChart3, User, Play, Pause, Volume2, 
-  FileSpreadsheet, PenTool, ShieldCheck, LogOut, ChevronRight, Users, UserPlus, X 
+  FileSpreadsheet, PenTool, ShieldCheck, LogOut, ChevronRight, Users, UserPlus, X, Network 
 } from 'lucide-react';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from 'firebase/auth';
 
 // --- ENVIRONMENT VARIABLE HELPER ---
-// Safely retrieves env vars in various environments (Vite, Next.js, Standard Webpack)
-// without crashing if 'process' or 'import.meta' is undefined.
 const getEnvVar = (key) => {
   try {
-    // Vite / Vercel standard
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
       return import.meta.env[key];
     }
-    // Create-React-App / Standard Node standard
     if (typeof process !== 'undefined' && process.env && process.env[key]) {
       return process.env[key];
     }
-  } catch (e) {
-    // Ignore errors in strict environments
-  }
+  } catch (e) { }
   return undefined;
 };
 
 // --- FIREBASE CONFIGURATION ---
-// 1. Tries to load from Vercel Environment Variables first (Secure)
-// 2. Falls back to hardcoded key for this preview to work (Optional)
 const firebaseConfig = {
-  apiKey: getEnvVar('VITE_FIREBASE_API_KEY'),
+  apiKey: getEnvVar('VITE_FIREBASE_API_KEY') || "AIzaSyBKaWwLtoLvKpDjl1ZNuehVpw4KXtfFQHs",
   authDomain: "holcim-coaching.firebaseapp.com",
   projectId: "holcim-coaching",
   storageBucket: "holcim-coaching.firebasestorage.app",
@@ -38,7 +30,6 @@ const firebaseConfig = {
   appId: "1:478954682:web:c391799e578c5a129bee83"
 };
 
-// Initialize Main App
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
@@ -51,6 +42,7 @@ You are a strict and critical Quality Assurance Manager for Holcim UK Service De
 2. **NEGATIVE MARKING**: If a step is missed, penalize exactly as defined.
 3. **TIMESTAMPS**: You MUST cite specific timestamps for evidence in your comments (e.g., "[01:15] Agent interrupted", "[00:30] Good use of name").
 4. **DETAILED FEEDBACK**: Write a professional narrative explaining exactly *why* points were deducted, referencing the audio time.
+5. **OUTPUT JSON**: You must output ONLY valid JSON.
 
 ### STRICT SCORING MATRIX (0-5):
 1. **Greeting & Introduction (5%)**
@@ -98,8 +90,7 @@ const HolcimLogo = ({ className = "h-12" }) => (
     alt="Holcim Logo" 
     className={`${className} w-auto object-contain`}
     onError={(e) => {
-      e.target.style.display = 'none'; // Hide broken image icon
-      // Fallback to text if image fails to load (e.g. in preview)
+      e.target.style.display = 'none';
       const span = document.createElement('span');
       span.innerText = "HOLCIM";
       span.style.fontWeight = "900";
@@ -199,7 +190,7 @@ const LoginScreen = () => {
         </div>
         <form onSubmit={handleLogin} className="p-8 pt-6 space-y-6">
           {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
-          <div className="space-y-2"><label className="text-xs font-bold uppercase tracking-wider text-slate-500">Email Address</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 transition-all" style={{ '--tw-ring-color': BRAND.green }} placeholder="name@holcim.co.uk" /></div>
+          <div className="space-y-2"><label className="text-xs font-bold uppercase tracking-wider text-slate-500">Email Address</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 transition-all" style={{ '--tw-ring-color': BRAND.green }} placeholder="name@holcim.com" /></div>
           <div className="space-y-2"><label className="text-xs font-bold uppercase tracking-wider text-slate-500">Password</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 transition-all" style={{ '--tw-ring-color': BRAND.green }} placeholder="••••••••" /></div>
           <button type="submit" disabled={loading} className="w-full py-3 rounded-lg font-bold text-white shadow-lg hover:opacity-90 transition-all flex justify-center items-center gap-2" style={{ backgroundColor: BRAND.green }}>{loading ? 'Authenticating...' : 'Sign In securely'} {!loading && <ChevronRight size={18} />}</button>
         </form>
@@ -248,7 +239,7 @@ const AdminUserCreator = ({ onClose }) => {
         <div className="p-8 bg-slate-50">
           {msg.text && <div className={`mb-6 p-4 rounded-lg text-sm flex items-center gap-2 ${msg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>{msg.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}{msg.text}</div>}
           <form onSubmit={handleCreateUser} className="space-y-5">
-            <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">New User Email</label><input type="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="analyst@holcim.co.uk" /></div>
+            <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">New User Email</label><input type="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="analyst@holcim.com" /></div>
             <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">Temporary Password</label><input type="text" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Min 6 chars" /></div>
             <div className="pt-2"><button type="submit" disabled={loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow transition-all flex justify-center items-center gap-2">{loading ? 'Creating Account...' : 'Create Account'}</button></div>
           </form>
@@ -269,8 +260,8 @@ export default function CallCoachingApp() {
   const [audioUrl, setAudioUrl] = useState(null);
   const audioRef = useRef(null);
   
-  // --- LOAD SECURE KEYS ---
-  const [apiKey, setApiKey] = useState(getEnvVar('VITE_GEMINI_API_KEY') || '');
+  // --- LOAD SECURE KEYS (OpenRouter) ---
+  const [apiKey, setApiKey] = useState(getEnvVar('VITE_OPENROUTER_API_KEY') || '');
   
   const [showSettings, setShowSettings] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -312,22 +303,89 @@ export default function CallCoachingApp() {
     return { percentage: percentage.toFixed(1) };
   };
 
-  const analyzeWithGemini = async (audioFile) => {
-    // Check if API key is loaded from env vars or manually set
-    if (!apiKey) { setError("Gemini API Key missing. Check Vercel Environment Variables (VITE_GEMINI_API_KEY) or enter in settings."); setView('upload'); return; }
-    setIsProcessing(true); setError('');
+  // --- OPENROUTER ANALYSIS ---
+  const analyzeWithOpenRouter = async (audioFile) => {
+    if (!apiKey) { 
+      setError("OpenRouter API Key missing. Check Vercel Environment Variables (VITE_OPENROUTER_API_KEY) or enter in settings."); 
+      setView('upload'); 
+      return; 
+    }
+    
+    setIsProcessing(true); 
+    setError('');
+    
     try {
-      const base64Audio = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.readAsDataURL(audioFile); reader.onload = () => resolve(reader.result.split(',')[1]); reader.onerror = error => reject(error); });
-      const payload = { contents: [{ parts: [{ text: SYSTEM_PROMPT }, { inline_data: { mime_type: audioFile.type || "audio/wav", data: base64Audio } }] }], generationConfig: { response_mime_type: "application/json" } };
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      // Convert Audio to Base64
+      const base64Audio = await new Promise((resolve, reject) => { 
+        const reader = new FileReader(); 
+        reader.readAsDataURL(audioFile); 
+        reader.onload = () => resolve(reader.result); 
+        reader.onerror = error => reject(error); 
+      });
+
+      // Prepare OpenRouter Payload (OpenAI Compatible)
+      // Using google/gemini-flash-1.5 via OpenRouter which supports audio via data URL
+      const payload = {
+        model: "google/gemini-flash-1.5",
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Please audit this call recording based on the policy."
+              },
+              {
+                type: "image_url", // OpenRouter often uses image_url for multimodal data including audio/video frames for Gemini
+                image_url: {
+                  url: base64Audio
+                }
+              }
+            ]
+          }
+        ],
+        response_format: { type: "json_object" } 
+      };
+
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "HTTP-Referer": window.location.href, // Required by OpenRouter
+          "X-Title": "Holcim Coaching App",     // Optional title
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
       const data = await response.json();
-      if (data.error) throw new Error(data.error.message);
-      const textResponse = data.candidates[0].content.parts[0].text;
-      const result = JSON.parse(textResponse);
-      setScores(result.scores); setComments(result.comments); setNaFlags(prev => ({ ...prev, hold_proc: result.hold_na || false }));
-      setExecutiveSummary(result.executive_summary || "No summary generated."); setDetailedStrengths(result.detailed_strengths || []); setDetailedImprovements(result.detailed_improvements || []);
+      
+      if (data.error) throw new Error(data.error.message || "OpenRouter API Error");
+      if (!data.choices || !data.choices[0]) throw new Error("No response from AI model");
+
+      // Parse Response
+      const resultText = data.choices[0].message.content;
+      const result = JSON.parse(resultText);
+
+      setScores(result.scores); 
+      setComments(result.comments); 
+      setNaFlags(prev => ({ ...prev, hold_proc: result.hold_na || false }));
+      setExecutiveSummary(result.executive_summary || "No summary generated."); 
+      setDetailedStrengths(result.detailed_strengths || []); 
+      setDetailedImprovements(result.detailed_improvements || []);
+      
       setView('report');
-    } catch (err) { setError("AI Analysis Failed: " + err.message); setView('upload'); } finally { setIsProcessing(false); }
+    } catch (err) { 
+      console.error(err);
+      setError("AI Analysis Failed: " + err.message); 
+      setView('upload'); 
+    } finally { 
+      setIsProcessing(false); 
+    }
   };
 
   const handleMockAnalysis = () => {
@@ -344,7 +402,13 @@ export default function CallCoachingApp() {
 
   const handleUpload = (e) => {
     const uploadedFile = e.target.files ? e.target.files[0] : null;
-    if (uploadedFile) { if(!agentName.trim()) { setError("Please enter the Analyst's Name."); return; } setFile(uploadedFile); setAudioUrl(URL.createObjectURL(uploadedFile)); setView('analyzing'); if (apiKey) analyzeWithGemini(uploadedFile); else handleMockAnalysis(); }
+    if (uploadedFile) { 
+      if(!agentName.trim()) { setError("Please enter the Analyst's Name."); return; } 
+      setFile(uploadedFile); 
+      setAudioUrl(URL.createObjectURL(uploadedFile)); 
+      setView('analyzing'); 
+      if (apiKey) analyzeWithOpenRouter(uploadedFile); else handleMockAnalysis(); 
+    }
   };
 
   const downloadCSV = () => {
@@ -383,8 +447,8 @@ export default function CallCoachingApp() {
       {showSettings && (
         <div className="text-white p-6 shadow-inner" style={{ backgroundColor: BRAND.navy }}>
           <div className="max-w-5xl mx-auto flex items-center gap-4">
-            <div className="flex-1"><h3 className="font-bold flex items-center gap-2"><Key size={16} /> AI Configuration</h3></div>
-            <div className="flex gap-2"><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="px-4 py-2 rounded bg-white/10 text-white text-sm border border-white/20" /><button onClick={() => setShowSettings(false)} style={{ backgroundColor: BRAND.green }} className="px-4 py-2 rounded text-sm font-bold hover:opacity-90">Done</button></div>
+            <div className="flex-1"><h3 className="font-bold flex items-center gap-2"><Network size={16} /> OpenRouter Configuration</h3></div>
+            <div className="flex gap-2"><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="px-4 py-2 rounded bg-white/10 text-white text-sm border border-white/20" placeholder="sk-or-..." /><button onClick={() => setShowSettings(false)} style={{ backgroundColor: BRAND.green }} className="px-4 py-2 rounded text-sm font-bold hover:opacity-90">Done</button></div>
           </div>
         </div>
       )}
@@ -396,7 +460,7 @@ export default function CallCoachingApp() {
             <div className="bg-white p-12 rounded-2xl shadow-xl border border-slate-200 text-center max-w-lg w-full">
               <div className="flex justify-center mb-8"><div className="p-4 rounded-full bg-slate-50">{apiKey ? <ShieldCheck size={48} style={{ color: BRAND.green }} /> : <Upload size={48} style={{ color: BRAND.navy }} />}</div></div>
               <h2 className="text-2xl font-bold mb-2" style={{ color: BRAND.navy }}>Call Quality Audit</h2>
-              <p className="text-slate-500 mb-8 text-sm">{apiKey ? 'Holcim UK Policy Strictness: HIGH' : 'Mock Mode Active'}</p>
+              <p className="text-slate-500 mb-8 text-sm">{apiKey ? 'Holcim UK Policy Strictness: HIGH (OpenRouter)' : 'Mock Mode Active'}</p>
               <div className="mb-6 text-left"><label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Analyst Name</label><div className="relative"><User className="absolute left-3 top-3 text-slate-400" size={18} /><input type="text" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Sarah Smith" className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 outline-none focus:ring-2" style={{ '--tw-ring-color': BRAND.green }} /></div></div>
               <label className="block w-full cursor-pointer group"><input type="file" accept=".wav,.mp3" className="hidden" onChange={handleUpload} /><div className="border-2 border-dashed border-slate-200 bg-slate-50 group-hover:bg-blue-50/50 group-hover:border-blue-200 transition-all rounded-xl p-8 flex flex-col items-center gap-3"><span className="font-semibold" style={{ color: BRAND.cyan }}>Click to upload recording</span></div></label>
             </div>
@@ -407,7 +471,7 @@ export default function CallCoachingApp() {
           <div className="flex flex-col items-center justify-center py-32 text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-b-4 mb-6" style={{ borderColor: BRAND.green }}></div>
             <h2 className="text-2xl font-bold" style={{ color: BRAND.navy }}>Auditing Call Quality...</h2>
-            <p className="text-slate-500 mt-2">Applying Holcim UK Best Practices Policy</p>
+            <p className="text-slate-500 mt-2">Connecting to OpenRouter (Gemini Flash)...</p>
           </div>
         )}
 
