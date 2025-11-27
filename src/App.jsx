@@ -324,7 +324,7 @@ export default function CallCoachingApp() {
       });
 
       // Prepare OpenRouter Payload (OpenAI Compatible)
-      // Using google/gemini-flash-1.5 via OpenRouter which supports audio via data URL
+      // Updated to use the newer, more stable Gemini 2.0 Flash
       const payload = {
         model: "google/gemini-2.0-flash-001",
         messages: [
@@ -340,7 +340,7 @@ export default function CallCoachingApp() {
                 text: "Please audit this call recording based on the policy."
               },
               {
-                type: "image_url", // OpenRouter often uses image_url for multimodal data including audio/video frames for Gemini
+                type: "image_url", // OpenRouter/Gemini supports audio via this field for now
                 image_url: {
                   url: base64Audio
                 }
@@ -364,7 +364,13 @@ export default function CallCoachingApp() {
 
       const data = await response.json();
       
-      if (data.error) throw new Error(data.error.message || "OpenRouter API Error");
+      // Handle OpenRouter specific error format
+      if (data.error) {
+        if (data.error.code === 402 || data.error.message?.includes('credits')) {
+           throw new Error("OpenRouter: Insufficient credits. Please check your account balance.");
+        }
+        throw new Error(data.error.message || "OpenRouter API Error");
+      }
       if (!data.choices || !data.choices[0]) throw new Error("No response from AI model");
 
       // Parse Response
@@ -471,7 +477,7 @@ export default function CallCoachingApp() {
           <div className="flex flex-col items-center justify-center py-32 text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-b-4 mb-6" style={{ borderColor: BRAND.green }}></div>
             <h2 className="text-2xl font-bold" style={{ color: BRAND.navy }}>Auditing Call Quality...</h2>
-            <p className="text-slate-500 mt-2">Connecting to OpenRouter (Gemini Flash)...</p>
+            <p className="text-slate-500 mt-2">Connecting to OpenRouter (Gemini 2.0 Flash)...</p>
           </div>
         )}
 
