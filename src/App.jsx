@@ -466,7 +466,7 @@ export default function CallCoachingApp() {
             <div className="bg-white p-12 rounded-2xl shadow-xl border border-slate-200 text-center max-w-lg w-full">
               <div className="flex justify-center mb-8"><div className="p-4 rounded-full bg-slate-50">{apiKey ? <ShieldCheck size={48} style={{ color: BRAND.green }} /> : <Upload size={48} style={{ color: BRAND.navy }} />}</div></div>
               <h2 className="text-2xl font-bold mb-2" style={{ color: BRAND.navy }}>Call Quality Audit</h2>
-              <p className="text-slate-500 mb-8 text-sm">{apiKey ? 'Holcim UK Policy Strictness: HIGH (Gemini 1.5 Flash)' : 'Mock Mode Active'}</p>
+              <p className="text-slate-500 mb-8 text-sm">{apiKey ? 'Holcim UK Policy' : 'Mock Mode Active'}</p>
               <div className="mb-6 text-left"><label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Analyst Name</label><div className="relative"><User className="absolute left-3 top-3 text-slate-400" size={18} /><input type="text" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Sarah Smith" className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 outline-none focus:ring-2" style={{ '--tw-ring-color': BRAND.green }} /></div></div>
               <label className="block w-full cursor-pointer group"><input type="file" accept=".wav,.mp3" className="hidden" onChange={handleUpload} /><div className="border-2 border-dashed border-slate-200 bg-slate-50 group-hover:bg-blue-50/50 group-hover:border-blue-200 transition-all rounded-xl p-8 flex flex-col items-center gap-3"><span className="font-semibold" style={{ color: BRAND.cyan }}>Click to upload recording</span></div></label>
             </div>
