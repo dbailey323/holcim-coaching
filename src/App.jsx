@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Upload, FileAudio, CheckCircle, AlertCircle, Save, Download, RefreshCw, 
   Settings, Printer, Lock, Key, BarChart3, User, Play, Pause, Volume2, 
-  FileSpreadsheet, PenTool, ShieldCheck, LogOut, ChevronRight, Users, UserPlus, X, Network, Zap 
+  FileSpreadsheet, PenTool, ShieldCheck, LogOut, ChevronRight, Users, UserPlus, X, Network, Zap, Database 
 } from 'lucide-react';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getFirestore, collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs } from 'firebase/firestore';
 
 // --- ENVIRONMENT VARIABLE HELPER ---
 const getEnvVar = (key) => {
@@ -32,6 +33,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getFirestore(app);
 
 // --- STRICT Rubric & System Prompt ---
 const SYSTEM_PROMPT = `
@@ -286,6 +288,7 @@ export default function CallCoachingApp() {
   const [detailedImprovements, setDetailedImprovements] = useState([]);
   const [agreedAction, setAgreedAction] = useState('');
   const [reviewDate, setReviewDate] = useState(new Date().toISOString().split('T')[0]);
+  const [saveStatus, setSaveStatus] = useState('');
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -312,6 +315,38 @@ export default function CallCoachingApp() {
     const maxPossibleWeightedScore = totalWeight * 5;
     const percentage = maxPossibleWeightedScore > 0 ? (weightedScoreSum / maxPossibleWeightedScore) * 100 : 0;
     return { percentage: percentage.toFixed(1) };
+  };
+
+  // --- SAVE TO FIRESTORE FUNCTION ---
+  const saveToFirestore = async () => {
+    setSaveStatus('saving');
+    try {
+      const auditData = {
+        agentName,
+        reviewDate,
+        scores,
+        comments,
+        naFlags,
+        executiveSummary,
+        detailedStrengths,
+        detailedImprovements,
+        agreedAction,
+        totalScore: calculateTotals().percentage,
+        audioFileName: file?.name || 'unknown',
+        createdAt: serverTimestamp(),
+        createdBy: user.email,
+        timestamp: new Date().toISOString()
+      };
+
+      const docRef = await addDoc(collection(db, 'audits'), auditData);
+      setSaveStatus('success');
+      setTimeout(() => setSaveStatus(''), 3000);
+      console.log('Document saved with ID:', docRef.id);
+    } catch (error) {
+      console.error('Error saving to Firestore:', error);
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus(''), 5000);
+    }
   };
 
   // --- GOOGLE GEMINI DIRECT API ANALYSIS (NO SDK) ---
@@ -488,6 +523,17 @@ export default function CallCoachingApp() {
 
         {view === 'report' && (
           <div className="space-y-8">
+            {saveStatus === 'success' && (
+              <div className="bg-green-50 text-green-700 px-4 py-3 rounded-lg border border-green-200 flex items-center gap-2 animate-fade-in">
+                <CheckCircle size={16} /> Report saved successfully to database!
+              </div>
+            )}
+            {saveStatus === 'error' && (
+              <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg border border-red-200 flex items-center gap-2 animate-fade-in">
+                <AlertCircle size={16} /> Failed to save report. Please try again.
+              </div>
+            )}
+
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
               <div className="flex flex-col md:flex-row justify-between items-start border-b border-slate-100 pb-6 mb-6 gap-6">
                 <div className="flex-1">
@@ -565,6 +611,23 @@ export default function CallCoachingApp() {
             </div>
 
             <div className="flex justify-end gap-4 no-print pb-10">
+              <button 
+                onClick={saveToFirestore} 
+                disabled={saveStatus === 'saving'}
+                style={{ backgroundColor: BRAND.cyan }} 
+                className="px-6 py-3 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg hover:opacity-90 transition-all disabled:opacity-50"
+              >
+                {saveStatus === 'saving' ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Database size={18} /> Save to Database
+                  </>
+                )}
+              </button>
               <button onClick={downloadCSV} className="px-6 py-3 bg-white border border-slate-200 text-slate-600 font-bold rounded-xl flex items-center gap-2 hover:bg-slate-50"><FileSpreadsheet size={18} /> Export CSV</button>
               <button onClick={() => window.print()} style={{ backgroundColor: BRAND.green }} className="px-8 py-3 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg hover:opacity-90 transition-all"><Printer size={18} /> Print PDF Report</button>
             </div>
@@ -575,5 +638,3 @@ export default function CallCoachingApp() {
     </div>
   );
 }
-
-
