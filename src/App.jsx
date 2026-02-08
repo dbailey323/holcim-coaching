@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Upload, FileAudio, CheckCircle, AlertCircle, Save, Download, RefreshCw, 
   Settings, Printer, Lock, Key, BarChart3, User, Play, Pause, Volume2, 
-  FileSpreadsheet, PenTool, ShieldCheck, LogOut, ChevronRight, Users, UserPlus, X, Network, Zap, Database 
+  FileSpreadsheet, PenTool, ShieldCheck, LogOut, ChevronRight, Users, UserPlus, X, Network, Zap, Database, Search, Calendar, FileText, ArrowLeft 
 } from 'lucide-react';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -261,10 +261,152 @@ const AdminUserCreator = ({ onClose }) => {
   );
 };
 
+// --- SAVED AUDITS VIEWER ---
+const SavedAuditsView = ({ onLoadAudit, onClose }) => {
+  const [audits, setAudits] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    loadAudits();
+  }, []);
+
+  const loadAudits = async () => {
+    try {
+      setLoading(true);
+      const q = query(
+        collection(db, 'audits'),
+        orderBy('createdAt', 'desc'),
+        limit(100)
+      );
+      const querySnapshot = await getDocs(q);
+      const auditsList = [];
+      querySnapshot.forEach((doc) => {
+        auditsList.push({ id: doc.id, ...doc.data() });
+      });
+      setAudits(auditsList);
+    } catch (err) {
+      console.error('Error loading audits:', err);
+      setError('Failed to load audits. Make sure Firestore is enabled in Firebase Console.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredAudits = audits.filter(audit => 
+    audit.agentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    audit.createdBy?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    audit.audioFileName?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const formatDate = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    try {
+      if (timestamp.toDate) {
+        return timestamp.toDate().toLocaleDateString('en-GB');
+      }
+      return new Date(timestamp).toLocaleDateString('en-GB');
+    } catch {
+      return 'Invalid Date';
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden animate-fade-in my-8">
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg" style={{ backgroundColor: `${BRAND.cyan}20`, color: BRAND.cyan }}><Database size={24} /></div>
+            <div>
+              <h3 className="font-bold text-xl text-slate-800">Saved Audit Reports</h3>
+              <p className="text-xs text-slate-500">{audits.length} coaching sessions in database</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors"><X size={24} /></button>
+        </div>
+
+        <div className="p-6 bg-slate-50 border-b border-slate-100">
+          <div className="relative">
+            <Search className="absolute left-3 top-3 text-slate-400" size={18} />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by analyst name, reviewer, or audio file..."
+              className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-200 focus:ring-2 outline-none"
+              style={{ '--tw-ring-color': BRAND.cyan }}
+            />
+          </div>
+        </div>
+
+        <div className="max-h-[60vh] overflow-y-auto">
+          {loading ? (
+            <div className="flex justify-center items-center py-20">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-4" style={{ borderColor: BRAND.green }}></div>
+            </div>
+          ) : error ? (
+            <div className="p-12 text-center">
+              <AlertCircle size={48} className="mx-auto mb-4 text-red-400" />
+              <p className="text-red-600 mb-2 font-semibold">{error}</p>
+              <p className="text-sm text-slate-500">Check Firebase Console → Firestore Database</p>
+            </div>
+          ) : filteredAudits.length === 0 ? (
+            <div className="p-12 text-center text-slate-400">
+              <FileText size={48} className="mx-auto mb-4 opacity-50" />
+              <p className="font-semibold">No audits found</p>
+              <p className="text-sm mt-2">{searchTerm ? 'Try a different search term' : 'Start by creating your first audit'}</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {filteredAudits.map((audit) => (
+                <div 
+                  key={audit.id} 
+                  className="p-6 hover:bg-slate-50 transition-colors cursor-pointer group" 
+                  onClick={() => onLoadAudit(audit)}
+                >
+                  <div className="flex justify-between items-start gap-6">
+                    <div className="flex-1">
+                      <h4 className="font-bold text-lg mb-2 group-hover:text-cyan-600 transition-colors" style={{ color: BRAND.navy }}>{audit.agentName}</h4>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500">
+                        <span className="flex items-center gap-1"><User size={14} /> {audit.createdBy}</span>
+                        <span className="flex items-center gap-1"><Calendar size={14} /> {formatDate(audit.createdAt)}</span>
+                        <span className="flex items-center gap-1"><FileAudio size={14} /> {audit.audioFileName || 'N/A'}</span>
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-4xl font-bold" style={{ color: Number(audit.totalScore) >= 85 ? BRAND.green : Number(audit.totalScore) >= 60 ? '#EAB308' : '#DC2626' }}>
+                        {audit.totalScore}%
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1">Overall Score</div>
+                      <div className="mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span className="text-xs font-semibold px-3 py-1 rounded-full" style={{ backgroundColor: `${BRAND.cyan}20`, color: BRAND.cyan }}>
+                          Click to view
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {!loading && !error && filteredAudits.length > 0 && (
+          <div className="p-4 bg-slate-50 border-t border-slate-100 text-center text-xs text-slate-500">
+            Showing {filteredAudits.length} of {audits.length} total audits
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export default function CallCoachingApp() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showSavedAudits, setShowSavedAudits] = useState(false);
 
   // Main State
   const [view, setView] = useState('upload'); 
@@ -273,7 +415,6 @@ export default function CallCoachingApp() {
   const audioRef = useRef(null);
    
   // --- GOOGLE GEMINI API KEYS ---
-  // Using direct REST API, so no SDK import is needed.
   const [apiKey, setApiKey] = useState(getEnvVar('VITE_GEMINI_API_KEY') || '');
    
   const [showSettings, setShowSettings] = useState(false);
@@ -289,6 +430,7 @@ export default function CallCoachingApp() {
   const [agreedAction, setAgreedAction] = useState('');
   const [reviewDate, setReviewDate] = useState(new Date().toISOString().split('T')[0]);
   const [saveStatus, setSaveStatus] = useState('');
+  const [loadedFromDb, setLoadedFromDb] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -315,6 +457,25 @@ export default function CallCoachingApp() {
     const maxPossibleWeightedScore = totalWeight * 5;
     const percentage = maxPossibleWeightedScore > 0 ? (weightedScoreSum / maxPossibleWeightedScore) * 100 : 0;
     return { percentage: percentage.toFixed(1) };
+  };
+
+  // --- LOAD AUDIT FROM DATABASE ---
+  const loadAuditFromDb = (audit) => {
+    setAgentName(audit.agentName);
+    setReviewDate(audit.reviewDate);
+    setScores(audit.scores);
+    setComments(audit.comments);
+    setNaFlags(audit.naFlags || {});
+    setExecutiveSummary(audit.executiveSummary || '');
+    setDetailedStrengths(audit.detailedStrengths || []);
+    setDetailedImprovements(audit.detailedImprovements || []);
+    setAgreedAction(audit.agreedAction || '');
+    setLoadedFromDb(true);
+    setShowSavedAudits(false);
+    setView('report');
+    // Note: Audio file is not available from saved records
+    setAudioUrl(null);
+    setFile(null);
   };
 
   // --- SAVE TO FIRESTORE FUNCTION ---
@@ -349,7 +510,7 @@ export default function CallCoachingApp() {
     }
   };
 
-  // --- GOOGLE GEMINI DIRECT API ANALYSIS (NO SDK) ---
+  // --- GOOGLE GEMINI DIRECT API ANALYSIS ---
   const analyzeWithGeminiAPI = async (audioFile) => {
     if (!apiKey) { 
       setError("Gemini API Key missing. Check Vercel Environment Variables (VITE_GEMINI_API_KEY) or enter in settings."); 
@@ -361,20 +522,17 @@ export default function CallCoachingApp() {
     setError('');
     
     try {
-      // 1. Convert Audio to Base64 (stripping the data URL prefix)
       const base64AudioData = await new Promise((resolve, reject) => { 
         const reader = new FileReader(); 
         reader.readAsDataURL(audioFile); 
         reader.onload = () => {
             const result = reader.result;
-            // Remove "data:audio/wav;base64," prefix for API usage
             const base64Data = result.split(',')[1];
             resolve(base64Data);
         }; 
         reader.onerror = error => reject(error); 
       });
 
-      // 2. Construct Payload for REST API
       const payload = {
         contents: [{
           parts: [
@@ -392,7 +550,6 @@ export default function CallCoachingApp() {
         }
       };
 
-      // 3. Send Request to Google REST Endpoint
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: {
@@ -408,21 +565,19 @@ export default function CallCoachingApp() {
 
       const data = await response.json();
       
-      // 4. Parse Response
-      // Gemini's structure: candidates[0].content.parts[0].text
       if (!data.candidates || !data.candidates[0]?.content?.parts[0]?.text) {
         throw new Error("Invalid response format from Gemini API");
       }
 
       const jsonResult = JSON.parse(data.candidates[0].content.parts[0].text);
 
-      // 5. Map Data to State
       setScores(jsonResult.scores); 
       setComments(jsonResult.comments); 
       setNaFlags(prev => ({ ...prev, hold_proc: jsonResult.hold_na || false }));
       setExecutiveSummary(jsonResult.executive_summary || "No summary generated."); 
       setDetailedStrengths(jsonResult.detailed_strengths || []); 
       setDetailedImprovements(jsonResult.detailed_improvements || []);
+      setLoadedFromDb(false);
       
       setView('report');
     } catch (err) { 
@@ -442,6 +597,7 @@ export default function CallCoachingApp() {
       setScores(newScores); setComments(newComments);
       setExecutiveSummary("Mock summary: Call started well at [00:05]. Issues at [01:20]. Closed well at [02:30].");
       setDetailedStrengths(["Polite greeting [00:05]."]); setDetailedImprovements(["Missed security [00:40]."]);
+      setLoadedFromDb(false);
       setIsProcessing(false); setView('report');
     }, 2000);
   };
@@ -473,6 +629,7 @@ export default function CallCoachingApp() {
   return (
     <div className="min-h-screen font-sans text-slate-800" style={{ backgroundColor: BRAND.grey }}>
       {showAdminPanel && <AdminUserCreator onClose={() => setShowAdminPanel(false)} />}
+      {showSavedAudits && <SavedAuditsView onLoadAudit={loadAuditFromDb} onClose={() => setShowSavedAudits(false)} />}
       
       <div className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm no-print">
         <div className="max-w-5xl mx-auto px-6 py-4 flex justify-between items-center">
@@ -482,10 +639,11 @@ export default function CallCoachingApp() {
              <span className="hidden md:block text-slate-500 font-medium">Service Desk Coaching</span>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => setShowAdminPanel(true)} className="p-2 rounded-full text-slate-400 hover:text-blue-600" title="Manage Users"><Users size={20} /></button>
-            <button onClick={() => setShowSettings(!showSettings)} className="p-2 rounded-full text-slate-400 hover:text-slate-600"><Settings size={20} /></button>
-            <button onClick={handleLogout} className="p-2 rounded-full text-slate-400 hover:text-red-600" title="Sign Out"><LogOut size={20} /></button>
-            {view === 'report' && <button onClick={() => setView('upload')} style={{ color: BRAND.green }} className="flex items-center gap-2 px-3 py-2 text-sm font-bold hover:bg-slate-50 rounded-lg"><RefreshCw size={16} /> New Audit</button>}
+            <button onClick={() => setShowSavedAudits(true)} className="p-2 rounded-full hover:bg-slate-100 transition-colors" style={{ color: showSavedAudits ? BRAND.cyan : '#94a3b8' }} title="View Saved Audits"><Database size={20} /></button>
+            <button onClick={() => setShowAdminPanel(true)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-blue-600 transition-colors" title="Manage Users"><Users size={20} /></button>
+            <button onClick={() => setShowSettings(!showSettings)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"><Settings size={20} /></button>
+            <button onClick={handleLogout} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-red-600 transition-colors" title="Sign Out"><LogOut size={20} /></button>
+            {view === 'report' && <button onClick={() => { setView('upload'); setLoadedFromDb(false); }} style={{ color: BRAND.green }} className="flex items-center gap-2 px-3 py-2 text-sm font-bold hover:bg-slate-50 rounded-lg transition-colors"><RefreshCw size={16} /> New Audit</button>}
           </div>
         </div>
       </div>
@@ -508,7 +666,13 @@ export default function CallCoachingApp() {
               <h2 className="text-2xl font-bold mb-2" style={{ color: BRAND.navy }}>Call Quality Audit</h2>
               <p className="text-slate-500 mb-8 text-sm">{apiKey ? 'Holcim UK Policy' : 'Mock Mode Active'}</p>
               <div className="mb-6 text-left"><label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Analyst Name</label><div className="relative"><User className="absolute left-3 top-3 text-slate-400" size={18} /><input type="text" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Sarah Smith" className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 outline-none focus:ring-2" style={{ '--tw-ring-color': BRAND.green }} /></div></div>
-              <label className="block w-full cursor-pointer group"><input type="file" accept=".wav,.mp3" className="hidden" onChange={handleUpload} /><div className="border-2 border-dashed border-slate-200 bg-slate-50 group-hover:bg-blue-50/50 group-hover:border-blue-200 transition-all rounded-xl p-8 flex flex-col items-center gap-3"><span className="font-semibold" style={{ color: BRAND.cyan }}>Click to upload recording</span></div></label>
+              <label className="block w-full cursor-pointer group"><input type="file" accept=".wav,.mp3" className="hidden" onChange={handleUpload} /><div className="border-2 border-dashed border-slate-200 bg-slate-50 group-hover:bg-blue-50/50 group-hover:border-blue-200 transition-all rounded-xl p-8 flex flex-col items-center gap-3"><FileAudio size={32} className="text-slate-400 group-hover:text-blue-400" /><span className="font-semibold" style={{ color: BRAND.cyan }}>Click to upload recording</span><span className="text-xs text-slate-400">WAV or MP3 format</span></div></label>
+              
+              <div className="mt-6 pt-6 border-t border-slate-100">
+                <button onClick={() => setShowSavedAudits(true)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg flex items-center justify-center gap-2 transition-all">
+                  <Database size={18} /> View Saved Audits
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -523,6 +687,11 @@ export default function CallCoachingApp() {
 
         {view === 'report' && (
           <div className="space-y-8">
+            {loadedFromDb && (
+              <div className="bg-blue-50 text-blue-700 px-4 py-3 rounded-lg border border-blue-200 flex items-center gap-2 animate-fade-in">
+                <Database size={16} /> Viewing saved audit from database • Audio file not available
+              </div>
+            )}
             {saveStatus === 'success' && (
               <div className="bg-green-50 text-green-700 px-4 py-3 rounded-lg border border-green-200 flex items-center gap-2 animate-fade-in">
                 <CheckCircle size={16} /> Report saved successfully to database!
@@ -539,12 +708,14 @@ export default function CallCoachingApp() {
                 <div className="flex-1">
                   <div className="uppercase tracking-wide text-xs font-bold text-slate-400 mb-1">Holcim UK Quality Assurance</div>
                   <h1 className="text-3xl font-bold" style={{ color: BRAND.navy }}>Audit Summary</h1>
-                  <div className="text-sm text-slate-500 mt-2 flex gap-4"><span className="flex items-center gap-1"><User size={14}/> Analyst: <b>{agentName}</b></span><span>•</span><span>Date: <b>{new Date().toLocaleDateString()}</b></span></div>
+                  <div className="text-sm text-slate-500 mt-2 flex gap-4"><span className="flex items-center gap-1"><User size={14}/> Analyst: <b>{agentName}</b></span><span>•</span><span>Review Date: <b>{reviewDate}</b></span></div>
                 </div>
-                <div className="w-full md:w-1/3 bg-slate-50 p-4 rounded-xl border border-slate-200 no-print">
-                  <div className="flex items-center gap-2 mb-2 text-xs font-bold text-slate-500 uppercase"><Volume2 size={14} /> Call Recording</div>
-                  <audio ref={audioRef} src={audioUrl} controls className="w-full h-8" />
-                </div>
+                {audioUrl && !loadedFromDb && (
+                  <div className="w-full md:w-1/3 bg-slate-50 p-4 rounded-xl border border-slate-200 no-print">
+                    <div className="flex items-center gap-2 mb-2 text-xs font-bold text-slate-500 uppercase"><Volume2 size={14} /> Call Recording</div>
+                    <audio ref={audioRef} src={audioUrl} controls className="w-full h-8" />
+                  </div>
+                )}
                 <div className="text-right min-w-fit">
                    <div className="text-5xl font-bold" style={{ color: Number(totals.percentage) >= 85 ? BRAND.green : Number(totals.percentage) >= 60 ? '#EAB308' : '#DC2626' }}>{totals.percentage}%</div>
                    <div className="text-sm text-slate-500 mt-1">Total Compliance Score</div>
@@ -611,24 +782,26 @@ export default function CallCoachingApp() {
             </div>
 
             <div className="flex justify-end gap-4 no-print pb-10">
-              <button 
-                onClick={saveToFirestore} 
-                disabled={saveStatus === 'saving'}
-                style={{ backgroundColor: BRAND.cyan }} 
-                className="px-6 py-3 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg hover:opacity-90 transition-all disabled:opacity-50"
-              >
-                {saveStatus === 'saving' ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Database size={18} /> Save to Database
-                  </>
-                )}
-              </button>
-              <button onClick={downloadCSV} className="px-6 py-3 bg-white border border-slate-200 text-slate-600 font-bold rounded-xl flex items-center gap-2 hover:bg-slate-50"><FileSpreadsheet size={18} /> Export CSV</button>
+              {!loadedFromDb && (
+                <button 
+                  onClick={saveToFirestore} 
+                  disabled={saveStatus === 'saving'}
+                  style={{ backgroundColor: BRAND.cyan }} 
+                  className="px-6 py-3 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg hover:opacity-90 transition-all disabled:opacity-50"
+                >
+                  {saveStatus === 'saving' ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Database size={18} /> Save to Database
+                    </>
+                  )}
+                </button>
+              )}
+              <button onClick={downloadCSV} className="px-6 py-3 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl flex items-center gap-2 hover:bg-slate-50 transition-colors"><FileSpreadsheet size={18} /> Export CSV</button>
               <button onClick={() => window.print()} style={{ backgroundColor: BRAND.green }} className="px-8 py-3 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg hover:opacity-90 transition-all"><Printer size={18} /> Print PDF Report</button>
             </div>
           </div>
