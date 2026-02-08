@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Upload, FileAudio, CheckCircle, AlertCircle, Save, Download, RefreshCw, 
   Settings, Printer, Lock, Key, BarChart3, User, Play, Pause, Volume2, 
-  FileSpreadsheet, PenTool, ShieldCheck, LogOut, ChevronRight, Users, UserPlus, X, Network, Zap, Database, Search, Calendar, FileText, ArrowLeft 
+  FileSpreadsheet, PenTool, ShieldCheck, LogOut, ChevronRight, Users, UserPlus, X, Network, Zap, Database, Search, Calendar, FileText, ArrowLeft, TrendingUp, TrendingDown, Award, Target 
 } from 'lucide-react';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -149,6 +149,34 @@ const RadarChart = ({ scores, naFlags }) => {
   );
 };
 
+// --- Simple Bar Chart ---
+const SimpleBarChart = ({ data, color = BRAND.green }) => {
+  if (!data || data.length === 0) return <div className="text-slate-400 text-sm">No data</div>;
+  const maxValue = Math.max(...data.map(d => d.value));
+  
+  return (
+    <div className="space-y-3">
+      {data.map((item, i) => (
+        <div key={i}>
+          <div className="flex justify-between text-xs mb-1">
+            <span className="font-semibold text-slate-700">{item.label}</span>
+            <span className="text-slate-500">{item.value.toFixed(1)}%</span>
+          </div>
+          <div className="w-full bg-slate-100 rounded-full h-3">
+            <div 
+              className="h-3 rounded-full transition-all duration-500" 
+              style={{ 
+                width: `${(item.value / maxValue) * 100}%`, 
+                backgroundColor: item.value >= 85 ? BRAND.green : item.value >= 60 ? '#EAB308' : '#DC2626' 
+              }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const TimestampedText = ({ text, onSeek }) => {
   if (!text) return null;
   const regex = /(\[\d{1,2}:\d{2}\])/g;
@@ -256,6 +284,221 @@ const AdminUserCreator = ({ onClose }) => {
             <div className="pt-2"><button type="submit" disabled={loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow transition-all flex justify-center items-center gap-2">{loading ? 'Creating Account...' : 'Create Account'}</button></div>
           </form>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// --- ANALYTICS DASHBOARD ---
+const AnalyticsDashboard = ({ onClose }) => {
+  const [audits, setAudits] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selectedAnalyst, setSelectedAnalyst] = useState(null);
+
+  useEffect(() => {
+    loadAudits();
+  }, []);
+
+  const loadAudits = async () => {
+    try {
+      setLoading(true);
+      const q = query(collection(db, 'audits'), orderBy('createdAt', 'desc'), limit(200));
+      const querySnapshot = await getDocs(q);
+      const auditsList = [];
+      querySnapshot.forEach((doc) => {
+        auditsList.push({ id: doc.id, ...doc.data() });
+      });
+      setAudits(auditsList);
+    } catch (err) {
+      console.error('Error loading audits:', err);
+      setError('Failed to load analytics data.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Calculate statistics
+  const totalAudits = audits.length;
+  const avgScore = audits.length > 0 ? audits.reduce((sum, a) => sum + Number(a.totalScore || 0), 0) / audits.length : 0;
+  const passRate = audits.length > 0 ? (audits.filter(a => Number(a.totalScore) >= 85).length / audits.length) * 100 : 0;
+  
+  // Analyst performance
+  const analystStats = {};
+  audits.forEach(audit => {
+    const name = audit.agentName;
+    if (!analystStats[name]) {
+      analystStats[name] = { scores: [], count: 0 };
+    }
+    analystStats[name].scores.push(Number(audit.totalScore || 0));
+    analystStats[name].count++;
+  });
+
+  const analystAvgs = Object.keys(analystStats).map(name => ({
+    label: name,
+    value: analystStats[name].scores.reduce((a, b) => a + b, 0) / analystStats[name].count,
+    count: analystStats[name].count
+  })).sort((a, b) => b.value - a.value);
+
+  // Criteria averages
+  const criteriaAvgs = CRITERIA.map(c => {
+    const scores = audits.map(a => a.scores?.[c.id] || 0).filter(s => s > 0);
+    return {
+      label: c.short,
+      value: scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length / 5) * 100 : 0
+    };
+  }).sort((a, b) => a.value - b.value);
+
+  const formatDate = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    try {
+      if (timestamp.toDate) return timestamp.toDate().toLocaleDateString('en-GB');
+      return new Date(timestamp).toLocaleDateString('en-GB');
+    } catch {
+      return 'Invalid';
+    }
+  };
+
+  const analystAudits = selectedAnalyst ? audits.filter(a => a.agentName === selectedAnalyst) : [];
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-white w-full max-w-7xl rounded-2xl shadow-2xl overflow-hidden animate-fade-in my-8">
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg" style={{ backgroundColor: `${BRAND.green}20`, color: BRAND.green }}><BarChart3 size={24} /></div>
+            <div>
+              <h3 className="font-bold text-xl text-slate-800">Performance Analytics</h3>
+              <p className="text-xs text-slate-500">Team coaching insights and trends</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors"><X size={24} /></button>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center items-center py-20">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-4" style={{ borderColor: BRAND.green }}></div>
+          </div>
+        ) : error ? (
+          <div className="p-12 text-center">
+            <AlertCircle size={48} className="mx-auto mb-4 text-red-400" />
+            <p className="text-red-600">{error}</p>
+          </div>
+        ) : (
+          <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+            {/* Overall Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-xl border border-blue-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <FileText className="text-blue-600" size={24} />
+                  <h4 className="text-sm font-bold text-blue-900 uppercase">Total Audits</h4>
+                </div>
+                <p className="text-4xl font-bold text-blue-600">{totalAudits}</p>
+              </div>
+              <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-xl border border-green-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <Target className="text-green-600" size={24} />
+                  <h4 className="text-sm font-bold text-green-900 uppercase">Avg Score</h4>
+                </div>
+                <p className="text-4xl font-bold text-green-600">{avgScore.toFixed(1)}%</p>
+              </div>
+              <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-xl border border-purple-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <Award className="text-purple-600" size={24} />
+                  <h4 className="text-sm font-bold text-purple-900 uppercase">Pass Rate</h4>
+                </div>
+                <p className="text-4xl font-bold text-purple-600">{passRate.toFixed(1)}%</p>
+                <p className="text-xs text-purple-700 mt-1">≥85% target</p>
+              </div>
+              <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-6 rounded-xl border border-orange-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <Users className="text-orange-600" size={24} />
+                  <h4 className="text-sm font-bold text-orange-900 uppercase">Analysts</h4>
+                </div>
+                <p className="text-4xl font-bold text-orange-600">{Object.keys(analystStats).length}</p>
+              </div>
+            </div>
+
+            {/* Charts Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Top Performers */}
+              <div className="bg-white rounded-xl border border-slate-200 p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <TrendingUp style={{ color: BRAND.green }} size={20} />
+                  <h4 className="font-bold text-lg" style={{ color: BRAND.navy }}>Top Performers</h4>
+                </div>
+                <SimpleBarChart data={analystAvgs.slice(0, 5)} />
+              </div>
+
+              {/* Weakest Criteria */}
+              <div className="bg-white rounded-xl border border-slate-200 p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <TrendingDown className="text-red-600" size={20} />
+                  <h4 className="font-bold text-lg" style={{ color: BRAND.navy }}>Focus Areas</h4>
+                </div>
+                <SimpleBarChart data={criteriaAvgs.slice(0, 5)} />
+              </div>
+            </div>
+
+            {/* Analyst Selector */}
+            <div className="bg-white rounded-xl border border-slate-200 p-6">
+              <h4 className="font-bold text-lg mb-4" style={{ color: BRAND.navy }}>Individual Analyst Performance</h4>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {analystAvgs.map((analyst, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setSelectedAnalyst(analyst.label === selectedAnalyst ? null : analyst.label)}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                      selectedAnalyst === analyst.label
+                        ? 'text-white shadow-lg'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                    style={selectedAnalyst === analyst.label ? { backgroundColor: BRAND.cyan } : {}}
+                  >
+                    {analyst.label} ({analyst.count})
+                  </button>
+                ))}
+              </div>
+
+              {selectedAnalyst && (
+                <div className="border-t border-slate-100 pt-4">
+                  <h5 className="font-semibold text-slate-700 mb-3">{selectedAnalyst}'s Audit History</h5>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {analystAudits.map((audit, i) => (
+                      <div key={i} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
+                        <div>
+                          <span className="text-sm text-slate-600">{formatDate(audit.createdAt)}</span>
+                          <span className="text-xs text-slate-400 ml-3">by {audit.createdBy}</span>
+                        </div>
+                        <span className="text-lg font-bold" style={{ color: Number(audit.totalScore) >= 85 ? BRAND.green : Number(audit.totalScore) >= 60 ? '#EAB308' : '#DC2626' }}>
+                          {audit.totalScore}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Recent Activity */}
+            <div className="bg-white rounded-xl border border-slate-200 p-6">
+              <h4 className="font-bold text-lg mb-4" style={{ color: BRAND.navy }}>Recent Activity</h4>
+              <div className="space-y-2">
+                {audits.slice(0, 10).map((audit, i) => (
+                  <div key={i} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
+                    <div className="flex-1">
+                      <span className="font-semibold text-slate-800">{audit.agentName}</span>
+                      <span className="text-xs text-slate-400 ml-3">{formatDate(audit.createdAt)}</span>
+                    </div>
+                    <span className="text-2xl font-bold" style={{ color: Number(audit.totalScore) >= 85 ? BRAND.green : Number(audit.totalScore) >= 60 ? '#EAB308' : '#DC2626' }}>
+                      {audit.totalScore}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -407,6 +650,7 @@ export default function CallCoachingApp() {
   const [authLoading, setAuthLoading] = useState(true);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showSavedAudits, setShowSavedAudits] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   // Main State
   const [view, setView] = useState('upload'); 
@@ -414,7 +658,6 @@ export default function CallCoachingApp() {
   const [audioUrl, setAudioUrl] = useState(null);
   const audioRef = useRef(null);
    
-  // --- GOOGLE GEMINI API KEYS ---
   const [apiKey, setApiKey] = useState(getEnvVar('VITE_GEMINI_API_KEY') || '');
    
   const [showSettings, setShowSettings] = useState(false);
@@ -459,7 +702,6 @@ export default function CallCoachingApp() {
     return { percentage: percentage.toFixed(1) };
   };
 
-  // --- LOAD AUDIT FROM DATABASE ---
   const loadAuditFromDb = (audit) => {
     setAgentName(audit.agentName);
     setReviewDate(audit.reviewDate);
@@ -473,12 +715,10 @@ export default function CallCoachingApp() {
     setLoadedFromDb(true);
     setShowSavedAudits(false);
     setView('report');
-    // Note: Audio file is not available from saved records
     setAudioUrl(null);
     setFile(null);
   };
 
-  // --- SAVE TO FIRESTORE FUNCTION ---
   const saveToFirestore = async () => {
     setSaveStatus('saving');
     try {
@@ -510,7 +750,6 @@ export default function CallCoachingApp() {
     }
   };
 
-  // --- GOOGLE GEMINI DIRECT API ANALYSIS ---
   const analyzeWithGeminiAPI = async (audioFile) => {
     if (!apiKey) { 
       setError("Gemini API Key missing. Check Vercel Environment Variables (VITE_GEMINI_API_KEY) or enter in settings."); 
@@ -630,6 +869,7 @@ export default function CallCoachingApp() {
     <div className="min-h-screen font-sans text-slate-800" style={{ backgroundColor: BRAND.grey }}>
       {showAdminPanel && <AdminUserCreator onClose={() => setShowAdminPanel(false)} />}
       {showSavedAudits && <SavedAuditsView onLoadAudit={loadAuditFromDb} onClose={() => setShowSavedAudits(false)} />}
+      {showAnalytics && <AnalyticsDashboard onClose={() => setShowAnalytics(false)} />}
       
       <div className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm no-print">
         <div className="max-w-5xl mx-auto px-6 py-4 flex justify-between items-center">
@@ -639,6 +879,7 @@ export default function CallCoachingApp() {
              <span className="hidden md:block text-slate-500 font-medium">Service Desk Coaching</span>
           </div>
           <div className="flex items-center gap-3">
+            <button onClick={() => setShowAnalytics(true)} className="p-2 rounded-full hover:bg-slate-100 transition-colors" style={{ color: showAnalytics ? BRAND.green : '#94a3b8' }} title="Performance Analytics"><BarChart3 size={20} /></button>
             <button onClick={() => setShowSavedAudits(true)} className="p-2 rounded-full hover:bg-slate-100 transition-colors" style={{ color: showSavedAudits ? BRAND.cyan : '#94a3b8' }} title="View Saved Audits"><Database size={20} /></button>
             <button onClick={() => setShowAdminPanel(true)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-blue-600 transition-colors" title="Manage Users"><Users size={20} /></button>
             <button onClick={() => setShowSettings(!showSettings)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"><Settings size={20} /></button>
@@ -668,9 +909,12 @@ export default function CallCoachingApp() {
               <div className="mb-6 text-left"><label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Analyst Name</label><div className="relative"><User className="absolute left-3 top-3 text-slate-400" size={18} /><input type="text" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Sarah Smith" className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 outline-none focus:ring-2" style={{ '--tw-ring-color': BRAND.green }} /></div></div>
               <label className="block w-full cursor-pointer group"><input type="file" accept=".wav,.mp3" className="hidden" onChange={handleUpload} /><div className="border-2 border-dashed border-slate-200 bg-slate-50 group-hover:bg-blue-50/50 group-hover:border-blue-200 transition-all rounded-xl p-8 flex flex-col items-center gap-3"><FileAudio size={32} className="text-slate-400 group-hover:text-blue-400" /><span className="font-semibold" style={{ color: BRAND.cyan }}>Click to upload recording</span><span className="text-xs text-slate-400">WAV or MP3 format</span></div></label>
               
-              <div className="mt-6 pt-6 border-t border-slate-100">
+              <div className="mt-6 pt-6 border-t border-slate-100 space-y-2">
                 <button onClick={() => setShowSavedAudits(true)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg flex items-center justify-center gap-2 transition-all">
                   <Database size={18} /> View Saved Audits
+                </button>
+                <button onClick={() => setShowAnalytics(true)} className="w-full py-3 hover:bg-slate-100 text-slate-700 font-bold rounded-lg flex items-center justify-center gap-2 transition-all border-2 border-slate-200">
+                  <BarChart3 size={18} /> Performance Analytics
                 </button>
               </div>
             </div>
