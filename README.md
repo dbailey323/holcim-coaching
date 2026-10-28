@@ -1,16 +1,42 @@
-# React + Vite
+# Service Desk Call Coaching
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Holcim UK service desk call-quality audits. A reviewer uploads a call recording, Google Gemini scores it against the 8-criteria coaching rubric, and the reviewer adjusts, saves (Firestore), exports (CSV) or prints the report.
 
-Currently, two official plugins are available:
+- `src/App.jsx` – the React app (Vite + Tailwind)
+- `api/analyze.js` – serverless function that uploads the recording to Gemini and runs the audit
+- `api/users.js` – serverless function for admin-only user creation
+- `firestore.rules` – Firestore security rules
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+The Gemini API key and the audit prompt live only on the server. Every API call requires a valid Firebase sign-in.
 
-## React Compiler
+## Configuration
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Set these in **Vercel → Project → Settings → Environment Variables** (server-side, no `VITE_` prefix):
 
-## Expanding the ESLint configuration
+| Variable | Description |
+| --- | --- |
+| `GEMINI_API_KEY` | Google AI Studio API key |
+| `FIREBASE_SERVICE_ACCOUNT` | Full JSON of a Firebase service account key (Firebase console → Project settings → Service accounts → Generate new private key) |
+| `ADMIN_EMAILS` | Comma-separated emails allowed to create users, e.g. `manager@holcim.com` |
+| `GEMINI_MODEL` | Optional, defaults to `gemini-2.5-flash` |
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Remove the old `VITE_GEMINI_API_KEY` variable: anything prefixed `VITE_` is published in the browser bundle. After removing it, rotate the key in Google AI Studio, because the old one has been public.
+
+Optional: `VITE_MOCK_MODE=true` produces random scores without calling Gemini (demo only; mock results can't be saved).
+
+## One-time Firebase setup
+
+1. **Disable public sign-up:** Firebase console → Authentication → Settings → User actions → untick *Enable create (sign-up)*. Users are then created only by admins through the app.
+2. **Deploy the Firestore rules:**
+   ```bash
+   npx firebase-tools deploy --only firestore:rules --project holcim-coaching
+   ```
+
+## Development
+
+```bash
+npm install
+npx vercel dev   # runs the app and the /api functions together
+```
+
+`npm run dev` runs only the front end; analysis and user management need the `/api` functions, so use `vercel dev` with the variables above in `.env.local`.

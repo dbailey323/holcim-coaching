@@ -4,8 +4,8 @@ import {
   Settings, Printer, Lock, Key, BarChart3, User, Play, Pause, Volume2, 
   FileSpreadsheet, PenTool, ShieldCheck, LogOut, ChevronRight, Users, UserPlus, X, Network, Zap, Database, Search, Calendar, FileText, ArrowLeft, TrendingUp, TrendingDown, Award, Target 
 } from 'lucide-react';
-import { initializeApp, deleteApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from 'firebase/auth';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs } from 'firebase/firestore';
 
 // --- ENVIRONMENT VARIABLE HELPER ---
@@ -35,47 +35,28 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// --- STRICT Rubric & System Prompt ---
-const SYSTEM_PROMPT = `
-You are a supportive and detail-oriented Quality Assurance Coach for Holcim UK Service Desk. Your task is to audit a call recording against the "Call Quality Monitoring Best Practices Policy" with a focus on constructive feedback and agent development.
+// Mock mode generates random scores for demos; never enable it in production.
+const MOCK_MODE = getEnvVar('VITE_MOCK_MODE') === 'true';
 
-### COACHING GUIDELINES:
-1. **BE BALANCED & OBJECTIVE**: Evaluate performance fairly. If an agent does a great job, reward them with a high score (5). If they struggle, score accurately but frame the feedback constructively.
-2. **GROWTH MINDSET**: When noting errors, focus on the "Coaching Opportunity." Explain *how* to improve rather than just stating what went wrong.
-3. **EVIDENCE-BASED**: You MUST cite specific timestamps for both praise and constructive feedback (e.g., "[01:15] Great clear explanation", "[02:30] Opportunity to use the customer's name").
-4. **PROFESSIONAL TONE**: Write the narrative as if you are speaking directly to a colleague you want to see succeed. Avoid harsh or punitive language.
-5. **OUTPUT JSON**: You must output ONLY valid JSON.
+// Gemini audio is sent through /api/analyze in chunks to stay under Vercel's 4.5 MB request limit.
+const UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
 
-### HOLD PROCEDURE SPECIFICS:
-- **Hold Music Detected**: Score this section if music is heard. Look for: Permission asked, waiting for an answer, and thanking the user upon return.
-- **Dead Air/Silence**: If the agent is silent while working (no music), mark "hold_na": true. You may gently note long silences in the comments as a coaching tip (e.g., "At [02:30], narrating your actions would fill the silence better").
-- **No Hold Used**: If no hold music is used, set "hold_na": true.
-
-### SCORING MATRIX (0-5):
-- **5 (Exceeds Expectations)**: Flawless execution, warm tone, proactive.
-- **3-4 (Meets Expectations)**: Good standard service, minor polish needed.
-- **0-2 (Needs Improvement)**: Critical steps missed or negative behavior.
-
-### CATEGORIES:
-1. **Greeting & Introduction (5%)**
-2. **Communication Style (10%)**
-3. **Issue Handling & Clarity (20%)**
-4. **Hold Procedure (10%)** - See specific logic above.
-5. **Professionalism & Empathy (15%)**
-6. **Resolution & Next Steps (15%)**
-7. **Call Closure (5%)**
-8. **Compliance & System Use (20%)**
-
-### OUTPUT FORMAT (JSON ONLY):
-{
-  "scores": { "greeting": 0-5, "comm_style": 0-5, "issue_handling": 0-5, "hold_proc": 0-5, "prof_empathy": 0-5, "resolution": 0-5, "closure": 0-5, "compliance": 0-5 },
-  "comments": { "greeting": "string", "comm_style": "string", ... },
-  "hold_na": boolean,
-  "executive_summary": "string",
-  "detailed_strengths": ["string"],
-  "detailed_improvements": ["string"]
-}
-`;
+// Calls one of our serverless functions with the signed-in user's Firebase ID token.
+const apiFetch = async (path, { json, headers, ...options } = {}) => {
+  const token = await auth.currentUser.getIdToken();
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...headers,
+    },
+    ...(json !== undefined ? { body: JSON.stringify(json) } : {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+};
 
 const CRITERIA = [
   { id: 'greeting', title: 'Greeting & Introduction', weight: 5, short: 'Greeting' },
@@ -252,17 +233,13 @@ const AdminUserCreator = ({ onClose }) => {
     e.preventDefault();
     setLoading(true);
     setMsg({ text: '', type: '' });
-    const secondaryApp = initializeApp(firebaseConfig, "Secondary");
-    const secondaryAuth = getAuth(secondaryApp);
     try {
-      await createUserWithEmailAndPassword(secondaryAuth, newEmail, newPassword);
-      await signOut(secondaryAuth);
+      await apiFetch('/api/users', { method: 'POST', json: { email: newEmail, password: newPassword } });
       setMsg({ text: `Successfully created user: ${newEmail}`, type: 'success' });
       setNewEmail(''); setNewPassword('');
     } catch (error) {
       setMsg({ text: error.message, type: 'error' });
     } finally {
-      deleteApp(secondaryApp);
       setLoading(false);
     }
   };
@@ -661,10 +638,8 @@ export default function CallCoachingApp() {
   const [audioUrl, setAudioUrl] = useState(null);
   const audioRef = useRef(null);
    
-  const [apiKey, setApiKey] = useState(getEnvVar('VITE_GEMINI_API_KEY') || '');
-   
-  const [showSettings, setShowSettings] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
   const [agentName, setAgentName] = useState('');
   const [scores, setScores] = useState({});
@@ -684,6 +659,8 @@ export default function CallCoachingApp() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
+      setIsAdmin(false);
+      if (currentUser) apiFetch('/api/users').then(d => setIsAdmin(!!d.isAdmin)).catch(() => {});
     });
     return () => unsubscribe();
   }, []);
@@ -765,68 +742,36 @@ export default function CallCoachingApp() {
     }
   };
 
-  const analyzeWithGeminiAPI = async (audioFile) => {
-    if (!apiKey) { 
-      setError("Gemini API Key missing. Check Vercel Environment Variables (VITE_GEMINI_API_KEY) or enter in settings."); 
-      setView('upload'); 
-      return; 
-    }
-    
-    setIsProcessing(true); 
+  const analyzeRecording = async (audioFile) => {
     setError('');
-    
     try {
-      const base64AudioData = await new Promise((resolve, reject) => { 
-        const reader = new FileReader(); 
-        reader.readAsDataURL(audioFile); 
-        reader.onload = () => {
-            const result = reader.result;
-            const base64Data = result.split(',')[1];
-            resolve(base64Data);
-        }; 
-        reader.onerror = error => reject(error); 
-      });
+      const ext = audioFile.name.split('.').pop().toLowerCase();
+      const mimeType = audioFile.type || (ext === 'wav' ? 'audio/wav' : 'audio/mp3');
 
-      const payload = {
-        contents: [{
-          parts: [
-            { text: `${SYSTEM_PROMPT}\n\nPlease audit this call recording provided in the audio attachment based on the strict policy above.` },
-            {
-              inline_data: {
-                mime_type: audioFile.type || "audio/mp3",
-                data: base64AudioData
-              }
-            }
-          ]
-        }],
-        generationConfig: {
-          response_mime_type: "application/json"
-        }
-      };
-
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+      setProgress('Uploading recording...');
+      const { session } = await apiFetch('/api/analyze?step=start', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
+        json: { name: audioFile.name, mimeType, size: audioFile.size }
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error?.message || `API Error: ${response.status}`);
+      let fileToken;
+      for (let offset = 0; offset < audioFile.size; offset += UPLOAD_CHUNK_BYTES) {
+        const end = Math.min(offset + UPLOAD_CHUNK_BYTES, audioFile.size);
+        const final = end === audioFile.size;
+        setProgress(`Uploading recording... ${Math.round((end / audioFile.size) * 100)}%`);
+        const result = await apiFetch(`/api/analyze?step=chunk&offset=${offset}${final ? '&final=1' : ''}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream', 'X-Upload-Session': session },
+          body: audioFile.slice(offset, end)
+        });
+        if (final) fileToken = result.file;
       }
 
-      const data = await response.json();
-      
-      if (!data.candidates || !data.candidates[0]?.content?.parts[0]?.text) {
-        throw new Error("Invalid response format from Gemini API");
-      }
+      setProgress('Processing with Google Gemini...');
+      const jsonResult = await apiFetch('/api/analyze?step=analyze', { method: 'POST', json: { file: fileToken } });
 
-      const jsonResult = JSON.parse(data.candidates[0].content.parts[0].text);
-
-      setScores(jsonResult.scores); 
-      setComments(jsonResult.comments); 
+      setScores(jsonResult.scores || {}); 
+      setComments(jsonResult.comments || {}); 
       setNaFlags(prev => ({ ...prev, hold_proc: jsonResult.hold_na || false }));
       setExecutiveSummary(jsonResult.executive_summary || "No summary generated."); 
       setDetailedStrengths(jsonResult.detailed_strengths || []); 
@@ -841,12 +786,11 @@ export default function CallCoachingApp() {
       setError("Gemini API Analysis Failed: " + (err.message || err.toString())); 
       setView('upload'); 
     } finally { 
-      setIsProcessing(false); 
+      setProgress('');
     }
   };
 
   const handleMockAnalysis = () => {
-    setIsProcessing(true);
     setTimeout(() => {
       const newScores = {}; const newComments = {};
       CRITERIA.forEach(c => { newScores[c.id] = Math.floor(Math.random() * 3) + 2; newComments[c.id] = `Mock analysis. [00:30] Good behavior noted. [01:15] Slight error detected.`; });
@@ -856,7 +800,7 @@ export default function CallCoachingApp() {
       setLoadedFromDb(false);
       setIsMock(true);
       setSavedId(null);
-      setIsProcessing(false); setView('report');
+      setView('report');
     }, 2000);
   };
 
@@ -867,7 +811,7 @@ export default function CallCoachingApp() {
       setFile(uploadedFile); 
       setAudioUrl(URL.createObjectURL(uploadedFile)); 
       setView('analyzing'); 
-      if (apiKey) analyzeWithGeminiAPI(uploadedFile); else handleMockAnalysis(); 
+      if (MOCK_MODE) handleMockAnalysis(); else analyzeRecording(uploadedFile); 
     }
   };
 
@@ -886,7 +830,7 @@ export default function CallCoachingApp() {
 
   return (
     <div className="min-h-screen font-sans text-slate-800" style={{ backgroundColor: BRAND.grey }}>
-      {showAdminPanel && <AdminUserCreator onClose={() => setShowAdminPanel(false)} />}
+      {showAdminPanel && isAdmin && <AdminUserCreator onClose={() => setShowAdminPanel(false)} />}
       {showSavedAudits && <SavedAuditsView onLoadAudit={loadAuditFromDb} onClose={() => setShowSavedAudits(false)} />}
       {showAnalytics && <AnalyticsDashboard onClose={() => setShowAnalytics(false)} />}
       
@@ -900,31 +844,21 @@ export default function CallCoachingApp() {
           <div className="flex items-center gap-3">
             <button onClick={() => setShowAnalytics(true)} className="p-2 rounded-full hover:bg-slate-100 transition-colors" style={{ color: showAnalytics ? BRAND.green : '#94a3b8' }} title="Performance Analytics"><BarChart3 size={20} /></button>
             <button onClick={() => setShowSavedAudits(true)} className="p-2 rounded-full hover:bg-slate-100 transition-colors" style={{ color: showSavedAudits ? BRAND.cyan : '#94a3b8' }} title="View Saved Audits"><Database size={20} /></button>
-            <button onClick={() => setShowAdminPanel(true)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-blue-600 transition-colors" title="Manage Users"><Users size={20} /></button>
-            <button onClick={() => setShowSettings(!showSettings)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"><Settings size={20} /></button>
+            {isAdmin && <button onClick={() => setShowAdminPanel(true)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-blue-600 transition-colors" title="Manage Users"><Users size={20} /></button>}
             <button onClick={handleLogout} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-red-600 transition-colors" title="Sign Out"><LogOut size={20} /></button>
             {view === 'report' && <button onClick={() => { resetAudit(); setView('upload'); }} style={{ color: BRAND.green }} className="flex items-center gap-2 px-3 py-2 text-sm font-bold hover:bg-slate-50 rounded-lg transition-colors"><RefreshCw size={16} /> New Audit</button>}
           </div>
         </div>
       </div>
 
-      {showSettings && (
-        <div className="text-white p-6 shadow-inner" style={{ backgroundColor: BRAND.navy }}>
-          <div className="max-w-5xl mx-auto flex items-center gap-4">
-            <div className="flex-1"><h3 className="font-bold flex items-center gap-2"><Zap size={16} /> Google Gemini API Configuration</h3></div>
-            <div className="flex gap-2"><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="px-4 py-2 rounded bg-white/10 text-white text-sm border border-white/20" placeholder="AIzaSy..." /><button onClick={() => setShowSettings(false)} style={{ backgroundColor: BRAND.green }} className="px-4 py-2 rounded text-sm font-bold hover:opacity-90">Done</button></div>
-          </div>
-        </div>
-      )}
-
       <div className="max-w-5xl mx-auto px-6 py-8">
         {view === 'upload' && (
           <div className="flex flex-col items-center justify-center py-12 animate-fade-in">
             {error && <div className="mb-6 bg-red-50 text-red-600 px-4 py-3 rounded-lg border border-red-200 flex items-center gap-2 max-w-lg w-full"><AlertCircle size={16} /> {error}</div>}
             <div className="bg-white p-12 rounded-2xl shadow-xl border border-slate-200 text-center max-w-lg w-full">
-              <div className="flex justify-center mb-8"><div className="p-4 rounded-full bg-slate-50">{apiKey ? <ShieldCheck size={48} style={{ color: BRAND.green }} /> : <Upload size={48} style={{ color: BRAND.navy }} />}</div></div>
+              <div className="flex justify-center mb-8"><div className="p-4 rounded-full bg-slate-50">{MOCK_MODE ? <Upload size={48} style={{ color: BRAND.navy }} /> : <ShieldCheck size={48} style={{ color: BRAND.green }} />}</div></div>
               <h2 className="text-2xl font-bold mb-2" style={{ color: BRAND.navy }}>Call Quality Audit</h2>
-              <p className="text-slate-500 mb-8 text-sm">{apiKey ? 'Holcim UK Policy' : 'Mock Mode Active'}</p>
+              <p className="text-slate-500 mb-8 text-sm">{MOCK_MODE ? 'Mock Mode Active' : 'Holcim UK Policy'}</p>
               <div className="mb-6 text-left"><label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Analyst Name</label><div className="relative"><User className="absolute left-3 top-3 text-slate-400" size={18} /><input type="text" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="e.g. Sarah Smith" className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 outline-none focus:ring-2" style={{ '--tw-ring-color': BRAND.green }} /></div></div>
               <label className="block w-full cursor-pointer group"><input type="file" accept=".wav,.mp3" className="hidden" onChange={handleUpload} /><div className="border-2 border-dashed border-slate-200 bg-slate-50 group-hover:bg-blue-50/50 group-hover:border-blue-200 transition-all rounded-xl p-8 flex flex-col items-center gap-3"><FileAudio size={32} className="text-slate-400 group-hover:text-blue-400" /><span className="font-semibold" style={{ color: BRAND.cyan }}>Click to upload recording</span><span className="text-xs text-slate-400">WAV or MP3 format</span></div></label>
               
@@ -944,7 +878,7 @@ export default function CallCoachingApp() {
           <div className="flex flex-col items-center justify-center py-32 text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-b-4 mb-6" style={{ borderColor: BRAND.green }}></div>
             <h2 className="text-2xl font-bold" style={{ color: BRAND.navy }}>Auditing Call Quality...</h2>
-            <p className="text-slate-500 mt-2">Processing with Google Gemini...</p>
+            <p className="text-slate-500 mt-2">{progress || 'Processing with Google Gemini...'}</p>
           </div>
         )}
 
@@ -952,7 +886,7 @@ export default function CallCoachingApp() {
           <div className="space-y-8">
             {isMock && (
               <div className="bg-amber-50 text-amber-800 px-4 py-3 rounded-lg border border-amber-200 flex items-center gap-2 animate-fade-in no-print">
-                <AlertCircle size={16} /> Mock mode: these scores are randomly generated, not a real analysis, and cannot be saved. Add a Gemini API key in settings.
+                <AlertCircle size={16} /> Mock mode: these scores are randomly generated, not a real analysis, and cannot be saved.
               </div>
             )}
             {loadedFromDb && (
