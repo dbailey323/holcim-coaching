@@ -48,7 +48,8 @@ export const verifyUser = async (request) => {
 
 export const isAdmin = (user) => {
   const admins = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-  return !!user.email && user.email_verified !== false && admins.includes(user.email.toLowerCase());
+  // Email verification isn't required: password accounts made in the console or by admins are never marked verified.
+  return !!user.email && admins.includes(user.email.toLowerCase());
 };
 
 export const createUser = (email, password) => adminAuth().createUser({ email, password });
