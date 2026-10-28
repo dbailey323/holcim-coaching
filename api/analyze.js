@@ -104,7 +104,7 @@ const waitUntilActive = async (name, apiKey) => {
 };
 
 const runAudit = async (file, apiKey) => {
-  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
   const res = await fetch(`${GEMINI}/v1beta/models/${model}:generateContent`, {
     method: 'POST',
     headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
