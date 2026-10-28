@@ -21,7 +21,7 @@ Set these in **Vercel → Project → Settings → Environment Variables** (serv
 | `GEMINI_API_KEY` | Google AI Studio API key |
 | `FIREBASE_SERVICE_ACCOUNT` | Full JSON of a Firebase service account key (Firebase console → Project settings → Service accounts → Generate new private key) |
 | `ADMIN_EMAILS` | Comma-separated emails allowed to create users, e.g. `manager@holcim.com` |
-| `GEMINI_MODEL` | Optional, defaults to `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Optional, defaults to `gemini-3.8-flash` |
 
 Remove the old `VITE_GEMINI_API_KEY` variable: anything prefixed `VITE_` is published in the browser bundle. After removing it, rotate the key in Google AI Studio, because the old one has been public.
 
