@@ -179,20 +179,21 @@ const SimpleBarChart = ({ data, color = BRAND.green }) => {
 
 const TimestampedText = ({ text, onSeek }) => {
   if (!text) return null;
-  const regex = /(\[\d{1,2}:\d{2}\])/g;
-  const parts = text.split(regex);
+  const parts = text.split(/(\[\d{1,2}:\d{2}\])/);
   return (
     <span>
       {parts.map((part, i) => {
-        if (regex.test(part)) {
+        if (/^\[\d{1,2}:\d{2}\]$/.test(part)) {
           const timeStr = part.replace('[', '').replace(']', '');
           const [mins, secs] = timeStr.split(':').map(Number);
           const totalSeconds = (mins * 60) + secs;
           return (
-            <button key={i} onClick={() => onSeek(totalSeconds)} style={{ color: BRAND.navy, backgroundColor: '#E0F2FE' }} className="inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded text-xs font-bold hover:opacity-80 transition-opacity cursor-pointer align-baseline no-print"> <Play size={8} fill="currentColor" /> {timeStr} </button>
+            <React.Fragment key={i}>
+              <button onClick={() => onSeek(totalSeconds)} style={{ color: BRAND.navy, backgroundColor: '#E0F2FE' }} className="inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded text-xs font-bold hover:opacity-80 transition-opacity cursor-pointer align-baseline no-print"> <Play size={8} fill="currentColor" /> {timeStr} </button>
+              <span className="hidden print:inline font-mono text-xs text-slate-500"> {part} </span>
+            </React.Fragment>
           );
         }
-        if (regex.test(part)) return <span key={i} className="hidden print:inline font-mono text-xs text-slate-500"> {part} </span>;
         return <span key={i}>{part}</span>;
       })}
     </span>
@@ -342,7 +343,9 @@ const AnalyticsDashboard = ({ onClose }) => {
 
   // Criteria averages
   const criteriaAvgs = CRITERIA.map(c => {
-    const scores = audits.map(a => a.scores?.[c.id] || 0).filter(s => s > 0);
+    const scores = audits
+      .filter(a => !a.naFlags?.[c.id] && typeof a.scores?.[c.id] === 'number')
+      .map(a => a.scores[c.id]);
     return {
       label: c.short,
       value: scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length / 5) * 100 : 0
@@ -674,6 +677,8 @@ export default function CallCoachingApp() {
   const [reviewDate, setReviewDate] = useState(new Date().toISOString().split('T')[0]);
   const [saveStatus, setSaveStatus] = useState('');
   const [loadedFromDb, setLoadedFromDb] = useState(false);
+  const [isMock, setIsMock] = useState(false);
+  const [savedId, setSavedId] = useState(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -683,11 +688,17 @@ export default function CallCoachingApp() {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
+  const resetAudit = () => {
     const initialScores = {}; const initialComments = {}; const initialNa = {};
     CRITERIA.forEach(c => { initialScores[c.id] = 0; initialComments[c.id] = "Pending analysis..."; initialNa[c.id] = false; });
     setScores(initialScores); setComments(initialComments); setNaFlags(initialNa);
-  }, []);
+    setExecutiveSummary(""); setDetailedStrengths([]); setDetailedImprovements([]); setAgreedAction('');
+    setReviewDate(new Date().toISOString().split('T')[0]);
+    setFile(null); setAudioUrl(null); setError(''); setSaveStatus('');
+    setLoadedFromDb(false); setIsMock(false); setSavedId(null);
+  };
+
+  useEffect(() => { resetAudit(); }, []);
 
   useEffect(() => { return () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }; }, [audioUrl]);
 
@@ -713,6 +724,8 @@ export default function CallCoachingApp() {
     setDetailedImprovements(audit.detailedImprovements || []);
     setAgreedAction(audit.agreedAction || '');
     setLoadedFromDb(true);
+    setIsMock(false);
+    setSavedId(audit.id);
     setShowSavedAudits(false);
     setView('report');
     setAudioUrl(null);
@@ -720,6 +733,7 @@ export default function CallCoachingApp() {
   };
 
   const saveToFirestore = async () => {
+    if (isMock || savedId || saveStatus === 'saving') return;
     setSaveStatus('saving');
     try {
       const auditData = {
@@ -740,6 +754,7 @@ export default function CallCoachingApp() {
       };
 
       const docRef = await addDoc(collection(db, 'audits'), auditData);
+      setSavedId(docRef.id);
       setSaveStatus('success');
       setTimeout(() => setSaveStatus(''), 3000);
       console.log('Document saved with ID:', docRef.id);
@@ -817,6 +832,8 @@ export default function CallCoachingApp() {
       setDetailedStrengths(jsonResult.detailed_strengths || []); 
       setDetailedImprovements(jsonResult.detailed_improvements || []);
       setLoadedFromDb(false);
+      setIsMock(false);
+      setSavedId(null);
       
       setView('report');
     } catch (err) { 
@@ -837,6 +854,8 @@ export default function CallCoachingApp() {
       setExecutiveSummary("Mock summary: Call started well at [00:05]. Issues at [01:20]. Closed well at [02:30].");
       setDetailedStrengths(["Polite greeting [00:05]."]); setDetailedImprovements(["Missed security [00:40]."]);
       setLoadedFromDb(false);
+      setIsMock(true);
+      setSavedId(null);
       setIsProcessing(false); setView('report');
     }, 2000);
   };
@@ -854,7 +873,7 @@ export default function CallCoachingApp() {
 
   const downloadCSV = () => {
     const headers = ["Criteria", "Weight", "Score", "Comments"];
-    const rows = CRITERIA.map(c => [c.title, c.weight + "%", naFlags[c.id] ? "N/A" : scores[c.id], `"${comments[c.id].replace(/"/g, '""')}"`]);
+    const rows = CRITERIA.map(c => [c.title, c.weight + "%", naFlags[c.id] ? "N/A" : scores[c.id], `"${(comments[c.id] || "").replace(/"/g, '""')}"`]);
     const summaryRow = ["OVERALL SCORE", "", calculateTotals().percentage + "%", `"${executiveSummary.replace(/"/g, '""')}"`];
     const csvContent = "data:text/csv;charset=utf-8," + `Analyst,${agentName},Date,${reviewDate}\n` + headers.join(",") + "\n" + rows.map(e => e.join(",")).join("\n") + "\n" + summaryRow.join(",");
     const encodedUri = encodeURI(csvContent); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", `Holcim_Audit_${agentName}_${reviewDate}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link);
@@ -884,7 +903,7 @@ export default function CallCoachingApp() {
             <button onClick={() => setShowAdminPanel(true)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-blue-600 transition-colors" title="Manage Users"><Users size={20} /></button>
             <button onClick={() => setShowSettings(!showSettings)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"><Settings size={20} /></button>
             <button onClick={handleLogout} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 hover:text-red-600 transition-colors" title="Sign Out"><LogOut size={20} /></button>
-            {view === 'report' && <button onClick={() => { setView('upload'); setLoadedFromDb(false); }} style={{ color: BRAND.green }} className="flex items-center gap-2 px-3 py-2 text-sm font-bold hover:bg-slate-50 rounded-lg transition-colors"><RefreshCw size={16} /> New Audit</button>}
+            {view === 'report' && <button onClick={() => { resetAudit(); setView('upload'); }} style={{ color: BRAND.green }} className="flex items-center gap-2 px-3 py-2 text-sm font-bold hover:bg-slate-50 rounded-lg transition-colors"><RefreshCw size={16} /> New Audit</button>}
           </div>
         </div>
       </div>
@@ -931,6 +950,11 @@ export default function CallCoachingApp() {
 
         {view === 'report' && (
           <div className="space-y-8">
+            {isMock && (
+              <div className="bg-amber-50 text-amber-800 px-4 py-3 rounded-lg border border-amber-200 flex items-center gap-2 animate-fade-in no-print">
+                <AlertCircle size={16} /> Mock mode: these scores are randomly generated, not a real analysis, and cannot be saved. Add a Gemini API key in settings.
+              </div>
+            )}
             {loadedFromDb && (
               <div className="bg-blue-50 text-blue-700 px-4 py-3 rounded-lg border border-blue-200 flex items-center gap-2 animate-fade-in">
                 <Database size={16} /> Viewing saved audit from database • Audio file not available
@@ -1026,10 +1050,10 @@ export default function CallCoachingApp() {
             </div>
 
             <div className="flex justify-end gap-4 no-print pb-10">
-              {!loadedFromDb && (
-                <button 
-                  onClick={saveToFirestore} 
-                  disabled={saveStatus === 'saving'}
+              {!loadedFromDb && !isMock && (
+                <button
+                  onClick={saveToFirestore}
+                  disabled={saveStatus === 'saving' || !!savedId}
                   style={{ backgroundColor: BRAND.cyan }} 
                   className="px-6 py-3 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg hover:opacity-90 transition-all disabled:opacity-50"
                 >
@@ -1037,6 +1061,10 @@ export default function CallCoachingApp() {
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                       Saving...
+                    </>
+                  ) : savedId ? (
+                    <>
+                      <CheckCircle size={18} /> Saved
                     </>
                   ) : (
                     <>
