@@ -10,17 +10,8 @@ import { uploadPresigned } from '@vercel/blob/client';
 import { getFirestore, collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs } from 'firebase/firestore';
 
 // --- ENVIRONMENT VARIABLE HELPER ---
-const getEnvVar = (key) => {
-  try {
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
-      return import.meta.env[key];
-    }
-    if (typeof process !== 'undefined' && process.env && process.env[key]) {
-      return process.env[key];
-    }
-  } catch (e) { }
-  return undefined;
-};
+// Vite exposes VITE_-prefixed variables on import.meta.env at build time.
+const getEnvVar = (key) => import.meta.env[key] || undefined;
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -130,7 +121,7 @@ const RadarChart = ({ scores, naFlags }) => {
 };
 
 // --- Simple Bar Chart ---
-const SimpleBarChart = ({ data, color = BRAND.green }) => {
+const SimpleBarChart = ({ data }) => {
   if (!data || data.length === 0) return <div className="text-slate-400 text-sm">No data</div>;
   const maxValue = Math.max(...data.map(d => d.value));
   
@@ -201,7 +192,7 @@ const LoginScreen = () => {
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-    } catch (err) {
+    } catch {
       setError("Invalid credentials. Please check your email and password.");
     } finally {
       setLoading(false);
