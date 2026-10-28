@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// Deploy with: npx firebase-tools deploy --only firestore:rules --project holcim-coaching
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Audits: any signed-in reviewer can read and create them; saved audits are never edited or deleted from the app.
+    match /audits/{auditId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.createdBy == request.auth.token.email
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
