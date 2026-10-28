@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import { upload } from '@vercel/blob/client';
 import { getFirestore, collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs } from 'firebase/firestore';
 
 // --- ENVIRONMENT VARIABLE HELPER ---
@@ -37,9 +38,6 @@ const db = getFirestore(app);
 
 // Mock mode generates random scores for demos; never enable it in production.
 const MOCK_MODE = getEnvVar('VITE_MOCK_MODE') === 'true';
-
-// Gemini audio is sent through /api/analyze in chunks to stay under Vercel's 4.5 MB request limit.
-const UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
 
 // Calls one of our serverless functions with the signed-in user's Firebase ID token.
 const apiFetch = async (path, { json, headers, ...options } = {}) => {
@@ -748,27 +746,21 @@ export default function CallCoachingApp() {
       const ext = audioFile.name.split('.').pop().toLowerCase();
       const mimeType = audioFile.type || (ext === 'wav' ? 'audio/wav' : 'audio/mp3');
 
+      // Recordings go straight to private Vercel Blob storage (no 4.5 MB function limit); /api/analyze takes it from there.
       setProgress('Uploading recording...');
-      const { session } = await apiFetch('/api/analyze?step=start', {
-        method: 'POST',
-        json: { name: audioFile.name, mimeType, size: audioFile.size }
+      const token = await auth.currentUser.getIdToken();
+      const safeName = audioFile.name.replace(/[^\w.-]+/g, '_');
+      const blob = await upload(`recordings/${auth.currentUser.uid}/${safeName}`, audioFile, {
+        access: 'private',
+        handleUploadUrl: '/api/upload',
+        headers: { Authorization: `Bearer ${token}` },
+        contentType: mimeType,
+        multipart: audioFile.size > 4 * 1024 * 1024,
+        onUploadProgress: ({ percentage }) => setProgress(`Uploading recording... ${Math.round(percentage)}%`)
       });
 
-      let fileToken;
-      for (let offset = 0; offset < audioFile.size; offset += UPLOAD_CHUNK_BYTES) {
-        const end = Math.min(offset + UPLOAD_CHUNK_BYTES, audioFile.size);
-        const final = end === audioFile.size;
-        setProgress(`Uploading recording... ${Math.round((end / audioFile.size) * 100)}%`);
-        const result = await apiFetch(`/api/analyze?step=chunk&offset=${offset}${final ? '&final=1' : ''}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream', 'X-Upload-Session': session },
-          body: audioFile.slice(offset, end)
-        });
-        if (final) fileToken = result.file;
-      }
-
       setProgress('Processing with Google Gemini...');
-      const jsonResult = await apiFetch('/api/analyze?step=analyze', { method: 'POST', json: { file: fileToken } });
+      const jsonResult = await apiFetch('/api/analyze', { method: 'POST', json: { pathname: blob.pathname } });
 
       setScores(jsonResult.scores || {}); 
       setComments(jsonResult.comments || {}); 

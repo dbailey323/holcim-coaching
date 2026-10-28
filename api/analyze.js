@@ -1,12 +1,11 @@
 // Audits a call recording with Gemini, keeping the API key and prompt on the server.
-// The browser drives three steps so recordings of any length stay under Vercel's 4.5 MB request limit:
-//   POST ?step=start   {name, mimeType, size}  -> {session}  opens a resumable Gemini file upload
-//   POST ?step=chunk&offset=N[&final=1]  raw bytes, X-Upload-Session header -> {file} on the final chunk
-//   POST ?step=analyze {file}                  -> audit JSON; the uploaded file is deleted afterwards
-import { handle, HttpError, json, requireEnv, seal, unseal, verifyUser } from './_lib/server.js';
+// The browser first uploads the recording to the private Vercel Blob store (see api/upload.js), then
+// POSTs {pathname} here. This function hands the whole file to the Gemini Files API in one request,
+// runs the audit, and deletes both copies of the recording.
+import { del, get } from '@vercel/blob';
+import { handle, HttpError, json, requireEnv, verifyUser } from './_lib/server.js';
 
 const GEMINI = 'https://generativelanguage.googleapis.com';
-const MAX_BYTES = 200 * 1024 * 1024;
 const MIME_ALIASES = { 'audio/mpeg': 'audio/mp3', 'audio/x-wav': 'audio/wav', 'audio/wave': 'audio/wav', 'audio/vnd.wave': 'audio/wav' };
 
 const SYSTEM_PROMPT = `
@@ -50,72 +49,52 @@ You are a supportive and detail-oriented Quality Assurance Coach for Holcim UK S
 }
 `;
 
+// Gemini's upload server answers errors in plain text, its API in JSON; surface either.
 const geminiError = async (res, what) => {
-  let message = `${what} failed (${res.status})`;
-  try { message = (await res.json()).error?.message || message; } catch { /* non-JSON body */ }
-  return new HttpError(502, `Gemini: ${message}`);
+  const text = await res.text().catch(() => '');
+  let message;
+  try { message = JSON.parse(text).error?.message; } catch { /* plain-text body */ }
+  message = message || text.trim().slice(0, 300) || `HTTP ${res.status}`;
+  console.error(`Gemini ${what} failed (${res.status}): ${text.slice(0, 1000)}`);
+  return new HttpError(502, `Gemini: ${what} failed (${res.status}): ${message}`);
 };
 
-const readJson = async (request) => {
-  try { return await request.json(); } catch { throw new HttpError(400, 'Invalid JSON body'); }
-};
-
-const start = async (request, user) => {
-  const { name, mimeType, size } = await readJson(request);
-  const mime = MIME_ALIASES[mimeType] || mimeType;
-  if (typeof mime !== 'string' || !mime.startsWith('audio/')) throw new HttpError(400, 'Please upload an audio file (WAV or MP3).');
-  if (!Number.isInteger(size) || size <= 0 || size > MAX_BYTES) throw new HttpError(400, 'Recording must be under 200 MB.');
-
-  const res = await fetch(`${GEMINI}/upload/v1beta/files`, {
+const uploadToGemini = async (audio, mimeType, displayName, apiKey) => {
+  const startRes = await fetch(`${GEMINI}/upload/v1beta/files`, {
     method: 'POST',
     headers: {
-      'x-goog-api-key': requireEnv('GEMINI_API_KEY'),
+      'x-goog-api-key': apiKey,
       'X-Goog-Upload-Protocol': 'resumable',
       'X-Goog-Upload-Command': 'start',
-      'X-Goog-Upload-Header-Content-Length': String(size),
-      'X-Goog-Upload-Header-Content-Type': mime,
+      'X-Goog-Upload-Header-Content-Length': String(audio.length),
+      'X-Goog-Upload-Header-Content-Type': mimeType,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ file: { display_name: String(name || 'call-recording').slice(0, 100) } }),
+    body: JSON.stringify({ file: { display_name: displayName } }),
   });
-  if (!res.ok) throw await geminiError(res, 'Starting upload');
-  const url = res.headers.get('x-goog-upload-url');
-  if (!url) throw new HttpError(502, 'Gemini did not return an upload URL');
-  return json({ session: seal(JSON.stringify({ url, size, uid: user.uid })) });
-};
+  if (!startRes.ok) throw await geminiError(startRes, 'starting upload');
+  const uploadUrl = startRes.headers.get('x-goog-upload-url');
+  if (!uploadUrl) throw new HttpError(502, 'Gemini did not return an upload URL');
 
-const chunk = async (request, user) => {
-  const session = JSON.parse(unseal(request.headers.get('x-upload-session') || ''));
-  if (session.uid !== user.uid) throw new HttpError(403, 'Upload session belongs to another user');
-
-  const params = new URL(request.url).searchParams;
-  const offset = Number(params.get('offset'));
-  const final = params.get('final') === '1';
-  const body = Buffer.from(await request.arrayBuffer());
-  if (!Number.isInteger(offset) || offset < 0 || offset + body.length > session.size) throw new HttpError(400, 'Invalid chunk offset');
-  if (final && offset + body.length !== session.size) throw new HttpError(400, 'Upload incomplete');
-
-  const res = await fetch(session.url, {
+  const res = await fetch(uploadUrl, {
     method: 'POST',
     headers: {
-      'x-goog-api-key': requireEnv('GEMINI_API_KEY'),
-      'X-Goog-Upload-Offset': String(offset),
-      'X-Goog-Upload-Command': final ? 'upload, finalize' : 'upload',
+      'x-goog-api-key': apiKey,
+      'X-Goog-Upload-Offset': '0',
+      'X-Goog-Upload-Command': 'upload, finalize',
     },
-    body,
+    body: audio,
   });
-  if (!res.ok) throw await geminiError(res, 'Uploading audio');
-  if (!final) return json({ ok: true });
-
+  if (!res.ok) throw await geminiError(res, 'uploading audio');
   const { file } = await res.json();
   if (!file?.name || !file?.uri) throw new HttpError(502, 'Gemini did not return the uploaded file');
-  return json({ file: seal(JSON.stringify({ name: file.name, uri: file.uri, mimeType: file.mimeType, uid: user.uid })) });
+  return file;
 };
 
 const waitUntilActive = async (name, apiKey) => {
   for (let i = 0; i < 60; i++) {
     const res = await fetch(`${GEMINI}/v1beta/${name}`, { headers: { 'x-goog-api-key': apiKey } });
-    if (!res.ok) throw await geminiError(res, 'Checking upload');
+    if (!res.ok) throw await geminiError(res, 'checking upload');
     const { state } = await res.json();
     if (state === 'ACTIVE') return;
     if (state === 'FAILED') throw new HttpError(502, 'Gemini could not process this audio file');
@@ -124,51 +103,59 @@ const waitUntilActive = async (name, apiKey) => {
   throw new HttpError(504, 'Gemini took too long to process the audio file');
 };
 
-const analyze = async (request, user) => {
-  const { file: token } = await readJson(request);
-  const file = JSON.parse(unseal(token || ''));
-  if (file.uid !== user.uid) throw new HttpError(403, 'File belongs to another user');
-  const apiKey = requireEnv('GEMINI_API_KEY');
+const runAudit = async (file, apiKey) => {
   const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-
+  const res = await fetch(`${GEMINI}/v1beta/models/${model}:generateContent`, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { text: `${SYSTEM_PROMPT}\n\nPlease audit this call recording provided in the audio attachment based on the strict policy above.` },
+          { file_data: { mime_type: file.mimeType, file_uri: file.uri } },
+        ],
+      }],
+      generationConfig: { response_mime_type: 'application/json' },
+    }),
+  });
+  if (!res.ok) throw await geminiError(res, 'analysis');
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new HttpError(502, 'Invalid response format from Gemini API');
   try {
-    await waitUntilActive(file.name, apiKey);
-    const res = await fetch(`${GEMINI}/v1beta/models/${model}:generateContent`, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: `${SYSTEM_PROMPT}\n\nPlease audit this call recording provided in the audio attachment based on the strict policy above.` },
-            { file_data: { mime_type: file.mimeType, file_uri: file.uri } },
-          ],
-        }],
-        generationConfig: { response_mime_type: 'application/json' },
-      }),
-    });
-    if (!res.ok) throw await geminiError(res, 'Analysis');
-    const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new HttpError(502, 'Invalid response format from Gemini API');
-    try {
-      return json(JSON.parse(text));
-    } catch {
-      throw new HttpError(502, 'Gemini returned malformed JSON. Please try again.');
-    }
-  } finally {
-    // Recordings contain personal data; don't leave them in Gemini storage for the default 48 hours.
-    await fetch(`${GEMINI}/v1beta/${file.name}`, { method: 'DELETE', headers: { 'x-goog-api-key': apiKey } }).catch(() => {});
+    return JSON.parse(text);
+  } catch {
+    throw new HttpError(502, 'Gemini returned malformed JSON. Please try again.');
   }
 };
-
-const STEPS = { start, chunk, analyze };
 
 export default {
   fetch: handle(async (request) => {
     if (request.method !== 'POST') throw new HttpError(405, 'Method not allowed');
     const user = await verifyUser(request);
-    const step = STEPS[new URL(request.url).searchParams.get('step')];
-    if (!step) throw new HttpError(400, 'Unknown step');
-    return step(request, user);
+    let body;
+    try { body = await request.json(); } catch { throw new HttpError(400, 'Invalid JSON body'); }
+    const pathname = String(body?.pathname || '');
+    if (!pathname.startsWith(`recordings/${user.uid}/`) || pathname.includes('..')) throw new HttpError(403, 'Invalid recording');
+    const apiKey = requireEnv('GEMINI_API_KEY');
+
+    const blob = await get(pathname, { access: 'private' });
+    if (blob?.statusCode !== 200) throw new HttpError(404, 'Uploaded recording not found. Please upload it again.');
+
+    let geminiFile;
+    try {
+      const audio = Buffer.from(await new Response(blob.stream).arrayBuffer());
+      const mimeType = MIME_ALIASES[blob.blob.contentType] || blob.blob.contentType;
+      geminiFile = await uploadToGemini(audio, mimeType, pathname.split('/').pop().slice(0, 100), apiKey);
+      await waitUntilActive(geminiFile.name, apiKey);
+      return json(await runAudit(geminiFile, apiKey));
+    } finally {
+      // Recordings contain personal data: remove both copies as soon as the audit is done (or has failed).
+      await del(blob.blob.url).catch(err => console.error('Blob delete failed', err));
+      if (geminiFile) {
+        await fetch(`${GEMINI}/v1beta/${geminiFile.name}`, { method: 'DELETE', headers: { 'x-goog-api-key': apiKey } })
+          .catch(err => console.error('Gemini file delete failed', err));
+      }
+    }
   }),
 };
