@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { upload } from '@vercel/blob/client';
+import { put } from '@vercel/blob/client';
 import { getFirestore, collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs } from 'firebase/firestore';
 
 // --- ENVIRONMENT VARIABLE HELPER ---
@@ -748,14 +748,19 @@ export default function CallCoachingApp() {
 
       // Recordings go straight to private Vercel Blob storage (no 4.5 MB function limit); /api/analyze takes it from there.
       setProgress('Uploading recording...');
-      const token = await auth.currentUser.getIdToken();
       const safeName = audioFile.name.replace(/[^\w.-]+/g, '_');
-      const blob = await upload(`recordings/${auth.currentUser.uid}/${safeName}`, audioFile, {
+      const pathname = `recordings/${auth.currentUser.uid}/${safeName}`;
+      const multipart = audioFile.size > 4 * 1024 * 1024;
+      // Fetch the upload token ourselves (rather than via the SDK's upload()) so server errors are shown, not swallowed.
+      const { clientToken } = await apiFetch('/api/upload', {
+        method: 'POST',
+        json: { type: 'blob.generate-client-token', payload: { pathname, clientPayload: null, multipart } }
+      });
+      const blob = await put(pathname, audioFile, {
         access: 'private',
-        handleUploadUrl: '/api/upload',
-        headers: { Authorization: `Bearer ${token}` },
+        token: clientToken,
         contentType: mimeType,
-        multipart: audioFile.size > 4 * 1024 * 1024,
+        multipart,
         onUploadProgress: ({ percentage }) => setProgress(`Uploading recording... ${Math.round(percentage)}%`)
       });
 

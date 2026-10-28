@@ -2,7 +2,7 @@
 // private Blob store, bypassing Vercel's 4.5 MB function request limit.
 // Signed-in users may only upload audio under recordings/<their uid>/.
 import { handleUpload } from '@vercel/blob/client';
-import { handle, HttpError, json, verifyUser } from './_lib/server.js';
+import { handle, HttpError, json, requireEnv, verifyUser } from './_lib/server.js';
 
 const MAX_RECORDING_BYTES = 200 * 1024 * 1024;
 
@@ -10,6 +10,8 @@ export default {
   fetch: handle(async (request) => {
     if (request.method !== 'POST') throw new HttpError(405, 'Method not allowed');
     const user = await verifyUser(request);
+    // Added automatically when a Blob store is connected to the project (Vercel → Storage).
+    const token = requireEnv('BLOB_READ_WRITE_TOKEN');
 
     let body;
     try { body = await request.json(); } catch { throw new HttpError(400, 'Invalid JSON body'); }
@@ -19,6 +21,7 @@ export default {
       return json(await handleUpload({
         body,
         request,
+        token,
         onBeforeGenerateToken: async (pathname) => {
           if (!pathname.startsWith(`recordings/${user.uid}/`)) throw new HttpError(403, 'Invalid upload path');
           return {
@@ -30,7 +33,7 @@ export default {
       }));
     } catch (err) {
       if (err instanceof HttpError) throw err;
-      throw new HttpError(400, `Upload not allowed: ${err.message}`);
+      throw new HttpError(500, `Could not start upload: ${err.message}`);
     }
   }),
 };
