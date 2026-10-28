@@ -3,13 +3,16 @@
 Holcim UK service desk call-quality audits. A reviewer uploads a call recording, Google Gemini scores it against the 8-criteria coaching rubric, and the reviewer adjusts, saves (Firestore), exports (CSV) or prints the report.
 
 - `src/App.jsx` – the React app (Vite + Tailwind)
-- `api/analyze.js` – serverless function that uploads the recording to Gemini and runs the audit
+- `api/upload.js` – issues upload tokens so the browser can send recordings straight to private Vercel Blob storage
+- `api/analyze.js` – serverless function that passes the recording to Gemini, runs the audit, then deletes the recording
 - `api/users.js` – serverless function for admin-only user creation
 - `firestore.rules` – Firestore security rules
 
 The Gemini API key and the audit prompt live only on the server. Every API call requires a valid Firebase sign-in.
 
 ## Configuration
+
+**Blob storage:** in Vercel → Project → **Storage** → **Create Database** → **Blob**, choose **Private** access and connect it to this project. This adds `BLOB_READ_WRITE_TOKEN` automatically. Recordings are stored there only while being audited and deleted straight afterwards.
 
 Set these in **Vercel → Project → Settings → Environment Variables** (server-side, no `VITE_` prefix):
 

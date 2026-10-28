@@ -1,5 +1,4 @@
 // Shared helpers for the Vercel serverless functions. Files in api/_lib are not exposed as routes.
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 
@@ -53,24 +52,3 @@ export const isAdmin = (user) => {
 };
 
 export const createUser = (email, password) => adminAuth().createUser({ email, password });
-
-// AES-GCM so values handed to the browser (e.g. Gemini upload URLs) are opaque and tamper-proof.
-const sealKey = () => createHash('sha256').update(`seal:${requireEnv('GEMINI_API_KEY')}`).digest();
-
-export const seal = (text) => {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', sealKey(), iv);
-  const data = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
-  return Buffer.concat([iv, cipher.getAuthTag(), data]).toString('base64url');
-};
-
-export const unseal = (token) => {
-  try {
-    const buf = Buffer.from(token, 'base64url');
-    const decipher = createDecipheriv('aes-256-gcm', sealKey(), buf.subarray(0, 12));
-    decipher.setAuthTag(buf.subarray(12, 28));
-    return Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]).toString('utf8');
-  } catch {
-    throw new HttpError(400, 'Invalid upload session');
-  }
-};
