@@ -106,9 +106,10 @@ const RadarChart = ({ scores, naFlags }) => {
     return { x: center + r * Math.cos(angle), y: center + r * Math.sin(angle) };
   };
 
-  const points = CRITERIA.map((c, i) => {
-    const val = naFlags[c.id] ? 0 : (scores[c.id] || 0);
-    const { x, y } = getCoords(val, i);
+  // N/A criteria are left out of the shape (its neighbours join up) rather than plotted as zero.
+  const plotted = CRITERIA.map((c, i) => ({ c, i })).filter(({ c }) => !naFlags[c.id]);
+  const points = plotted.map(({ c, i }) => {
+    const { x, y } = getCoords(scores[c.id] || 0, i);
     return `${x},${y}`;
   }).join(' ');
 
@@ -120,9 +121,9 @@ const RadarChart = ({ scores, naFlags }) => {
         {levels.map((level) => (
           <polygon key={level} points={CRITERIA.map((_, i) => { const r = (level / 5) * radius; const angle = i * angleSlice - Math.PI / 2; return `${center + r * Math.cos(angle)},${center + r * Math.sin(angle)}`; }).join(' ')} fill={level === 5 ? '#f0fdf4' : 'none'} stroke="#e2e8f0" strokeWidth="1" />
         ))}
-        {CRITERIA.map((c, i) => { const { x, y } = getCoords(5, i); return ( <g key={i}> <line x1={center} y1={center} x2={x} y2={y} stroke="#cbd5e1" strokeWidth="1" /> <text x={x + (x > center ? 10 : -10)} y={y + (y > center ? 10 : -10)} textAnchor={x > center ? 'start' : 'end'} dominantBaseline="middle" className="text-[10px] fill-slate-500 font-medium uppercase">{c.short}</text> </g> ); })}
+        {CRITERIA.map((c, i) => { const { x, y } = getCoords(5, i); return ( <g key={i}> <line x1={center} y1={center} x2={x} y2={y} stroke="#cbd5e1" strokeWidth="1" /> <text x={x + (x > center ? 10 : -10)} y={y + (y > center ? 10 : -10)} textAnchor={x > center ? 'start' : 'end'} dominantBaseline="middle" className={`text-[10px] font-medium uppercase ${naFlags[c.id] ? 'fill-slate-300' : 'fill-slate-500'}`}>{c.short}{naFlags[c.id] ? ' (N/A)' : ''}</text> </g> ); })}
         <polygon points={points} fill={`${BRAND.green}33`} stroke={BRAND.green} strokeWidth="2" />
-        {CRITERIA.map((c, i) => { const val = naFlags[c.id] ? 0 : (scores[c.id] || 0); const { x, y } = getCoords(val, i); return <circle key={i} cx={x} cy={y} r="4" fill={BRAND.green} />; })}
+        {plotted.map(({ c, i }) => { const { x, y } = getCoords(scores[c.id] || 0, i); return <circle key={i} cx={x} cy={y} r="4" fill={BRAND.green} />; })}
       </svg>
     </div>
   );
@@ -156,19 +157,27 @@ const SimpleBarChart = ({ data, color = BRAND.green }) => {
   );
 };
 
+// Matches [01:15] and groups like [02:25 - 05:24], [00:49, 01:09] or [01:00 to 01:30].
+const TIMESTAMP_GROUP = /(\[\d{1,2}:\d{2}(?:\s*(?:-|–|—|,|to|and)\s*\d{1,2}:\d{2})*\])/;
+
 const TimestampedText = ({ text, onSeek }) => {
   if (!text) return null;
-  const parts = text.split(/(\[\d{1,2}:\d{2}\])/);
+  // split() with a capture group puts the matched timestamp groups at the odd indexes.
+  const parts = text.split(TIMESTAMP_GROUP);
   return (
     <span>
       {parts.map((part, i) => {
-        if (/^\[\d{1,2}:\d{2}\]$/.test(part)) {
-          const timeStr = part.replace('[', '').replace(']', '');
-          const [mins, secs] = timeStr.split(':').map(Number);
-          const totalSeconds = (mins * 60) + secs;
+        if (i % 2 === 1) {
+          const pieces = part.slice(1, -1).split(/(\d{1,2}:\d{2})/);
           return (
             <React.Fragment key={i}>
-              <button onClick={() => onSeek(totalSeconds)} style={{ color: BRAND.navy, backgroundColor: '#E0F2FE' }} className="inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded text-xs font-bold hover:opacity-80 transition-opacity cursor-pointer align-baseline no-print"> <Play size={8} fill="currentColor" /> {timeStr} </button>
+              <span className="no-print">
+                {pieces.map((piece, j) => {
+                  if (j % 2 === 0) return piece.trim() ? <span key={j} className="text-xs text-slate-400">{piece.trim()}</span> : null;
+                  const [mins, secs] = piece.split(':').map(Number);
+                  return <button key={j} onClick={() => onSeek((mins * 60) + secs)} style={{ color: BRAND.navy, backgroundColor: '#E0F2FE' }} className="inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded text-xs font-bold hover:opacity-80 transition-opacity cursor-pointer align-baseline"> <Play size={8} fill="currentColor" /> {piece} </button>;
+                })}
+              </span>
               <span className="hidden print:inline font-mono text-xs text-slate-500"> {part} </span>
             </React.Fragment>
           );
