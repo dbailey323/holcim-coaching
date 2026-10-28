@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { put } from '@vercel/blob/client';
+import { uploadPresigned } from '@vercel/blob/client';
 import { getFirestore, collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs } from 'firebase/firestore';
 
 // --- ENVIRONMENT VARIABLE HELPER ---
@@ -749,20 +749,27 @@ export default function CallCoachingApp() {
       // Recordings go straight to private Vercel Blob storage (no 4.5 MB function limit); /api/analyze takes it from there.
       setProgress('Uploading recording...');
       const safeName = audioFile.name.replace(/[^\w.-]+/g, '_');
-      const pathname = `recordings/${auth.currentUser.uid}/${safeName}`;
+      // Unique per upload: the presigned token covers exactly this path and blobs are never overwritten.
+      const pathname = `recordings/${auth.currentUser.uid}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${safeName}`;
       const multipart = audioFile.size > 4 * 1024 * 1024;
-      // Fetch the upload token ourselves (rather than via the SDK's upload()) so server errors are shown, not swallowed.
-      const { clientToken } = await apiFetch('/api/upload', {
-        method: 'POST',
-        json: { type: 'blob.generate-client-token', payload: { pathname, clientPayload: null, multipart } }
-      });
-      const blob = await put(pathname, audioFile, {
-        access: 'private',
-        token: clientToken,
-        contentType: mimeType,
-        multipart,
-        onUploadProgress: ({ percentage }) => setProgress(`Uploading recording... ${Math.round(percentage)}%`)
-      });
+      const token = await auth.currentUser.getIdToken();
+      let blob;
+      try {
+        blob = await uploadPresigned(pathname, audioFile, {
+          access: 'private',
+          handleUploadUrl: '/api/upload',
+          headers: { Authorization: `Bearer ${token}` },
+          contentType: mimeType,
+          multipart,
+          onUploadProgress: ({ percentage }) => setProgress(`Uploading recording... ${Math.round(percentage)}%`)
+        });
+      } catch (err) {
+        // The SDK hides /api/upload's error message; ask again ourselves so the real reason is shown.
+        if (/presigned URL/i.test(err.message)) {
+          await apiFetch('/api/upload', { method: 'POST', json: { type: 'blob.generate-presigned-url', payload: { pathname, clientPayload: null, multipart } } });
+        }
+        throw err;
+      }
 
       setProgress('Processing with Google Gemini...');
       const jsonResult = await apiFetch('/api/analyze', { method: 'POST', json: { pathname: blob.pathname } });

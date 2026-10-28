@@ -12,7 +12,7 @@ The Gemini API key and the audit prompt live only on the server. Every API call 
 
 ## Configuration
 
-**Blob storage:** in Vercel → Project → **Storage** → **Create Database** → **Blob**, choose **Private** access and connect it to this project. This adds `BLOB_READ_WRITE_TOKEN` automatically. Recordings are stored there only while being audited and deleted straight afterwards.
+**Blob storage:** in Vercel → Project → **Storage** → **Create Database** → **Blob**, choose **Private** access and connect it to this project. This adds `BLOB_STORE_ID` and `BLOB_WEBHOOK_PUBLIC_KEY` automatically; uploads use presigned URLs with the project's OIDC credentials, so no read-write token is needed. Recordings are stored there only while being audited and deleted straight afterwards.
 
 Set these in **Vercel → Project → Settings → Environment Variables** (server-side, no `VITE_` prefix):
 
