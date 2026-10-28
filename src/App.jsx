@@ -68,7 +68,7 @@ const BRAND = {
 // --- IMAGE LOGO COMPONENT ---
 const HolcimLogo = ({ className = "h-12" }) => (
   <img 
-    src="/logo.png" 
+    src="/logo.svg" 
     alt="Holcim Logo" 
     className={`${className} w-auto object-contain`}
     onError={(e) => {
